@@ -1,0 +1,471 @@
+/* =========================================================
+   SISTEMA ODONTOLÓGICO DENTALROS
+   TEMA GLASSMORFISMO ROSA FLOR DE LOTO & CUARZO ROSA
+   Armonía pura con el logotipo oficial (Rosado / Peonía / Loto)
+   Efectos dinámicos de desplazamiento del mouse
+   ========================================================= */
+
+:root {
+  /* Coordenadas dinámicas del mouse */
+  --mouse-x: 50vw;
+  --mouse-y: 50vh;
+
+  /* Paleta Rosado Flor de Loto DentalRos */
+  --rose-primary: #e11d48;
+  --rose-bright: #f43f5e;
+  --rose-soft: #fb7185;
+  --rose-light: #fda4af;
+  --rose-pale: #ffe4e6;
+  --rose-blush: #fff1f2;
+  --rose-deep: #9f1239;
+
+  --lotus-50: #fdf2f8;
+  --lotus-100: #fce7f3;
+  --lotus-200: #fbcfe8;
+  --lotus-400: #f472b6;
+  --lotus-500: #ec4899;
+  --lotus-600: #db2777;
+  --lotus-700: #be185d;
+
+  --gold-accent: #d4af37; /* Toque muy sutil del borde del diente */
+  
+  --text-dark: #1f1217;
+  --text-body: #372b31;
+  --text-muted: #6e5863;
+
+  /* Glassmorfismo Cuarzo */
+  --glass-bg: rgba(255, 255, 255, 0.82);
+  --glass-border: rgba(255, 255, 255, 0.9);
+  --glass-shadow: 0 16px 36px -6px rgba(225, 29, 72, 0.08), 0 4px 14px -2px rgba(0, 0, 0, 0.03);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: var(--text-dark);
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+  /* Fondo ambiental suave: Brumas de Flor de Loto, Rosa Cuarzo y Perla */
+  background: 
+    radial-gradient(at 0% 0%, rgba(254, 226, 226, 0.55) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(252, 231, 243, 0.6) 0px, transparent 50%),
+    radial-gradient(at 50% 100%, rgba(255, 241, 242, 0.65) 0px, transparent 55%),
+    radial-gradient(at 100% 100%, rgba(243, 232, 255, 0.4) 0px, transparent 50%),
+    #faf7f8;
+  background-attachment: fixed;
+}
+
+/* ================= EFECTO SPOTLIGHT / LUZ QUE SIGUE AL MOUSE ================= */
+
+#mouse-spotlight-layer {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 1;
+  background: radial-gradient(
+    650px circle at var(--mouse-x, 50vw) var(--mouse-y, 50vh),
+    rgba(244, 63, 94, 0.11),
+    rgba(236, 72, 153, 0.06) 40%,
+    transparent 70%
+  );
+  transition: opacity 0.25s ease;
+  will-change: background;
+}
+
+/* Cursor de brillo estético rosado */
+#mouse-cursor-orb {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 99999;
+  background: radial-gradient(circle, rgba(244, 63, 94, 0.35) 0%, rgba(236, 72, 153, 0.1) 70%, transparent 100%);
+  transform: translate(calc(var(--mouse-x, -100px) - 16px), calc(var(--mouse-y, -100px) - 16px));
+  transition: transform 0.06s cubic-bezier(0.2, 0.9, 0.3, 1);
+  mix-blend-mode: multiply;
+}
+
+@media (max-width: 768px) {
+  #mouse-cursor-orb {
+    display: none;
+  }
+}
+
+/* ================= GLASSMORFISMO ROSA PREMIUM ================= */
+
+.glass-header {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(244, 63, 94, 0.18);
+  box-shadow: 0 4px 24px -2px rgba(225, 29, 72, 0.06);
+  position: relative;
+  z-index: 40;
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: var(--glass-shadow);
+  position: relative;
+  z-index: 10;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(251, 207, 232, 0.65);
+  box-shadow: 0 6px 20px -2px rgba(225, 29, 72, 0.04);
+  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Resplandor magnético rosado en tarjetas al pasar el cursor */
+.glass-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(350px circle at var(--card-mouse-x, 50%) var(--card-mouse-y, 50%), rgba(244, 63, 94, 0.12), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.glass-card:hover::after {
+  opacity: 1;
+}
+
+.glass-card:hover {
+  transform: translateY(-3px) scale(1.006);
+  box-shadow: 0 16px 32px -4px rgba(225, 29, 72, 0.12), 0 4px 14px rgba(244, 63, 94, 0.08);
+  border-color: rgba(244, 63, 94, 0.45);
+}
+
+.glass-modal {
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 25px 60px -10px rgba(225, 29, 72, 0.18);
+  position: relative;
+  z-index: 55;
+}
+
+.modal-backdrop {
+  background-color: rgba(35, 15, 22, 0.5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* ================= BOTONES ROSA LOTO (PEONÍA & CUARZO) ================= */
+
+.btn-primary, .btn-gold {
+  background: linear-gradient(135deg, #f43f5e 0%, #e11d48 50%, #be185d 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgba(225, 29, 72, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-primary::after, .btn-gold::after {
+  content: '';
+  position: absolute;
+  top: -60%;
+  left: -90%;
+  width: 60%;
+  height: 220%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  transform: rotate(25deg);
+  transition: left 0.7s ease;
+  pointer-events: none;
+}
+
+.btn-primary:hover::after, .btn-gold:hover::after {
+  left: 140%;
+}
+
+.btn-primary:hover, .btn-gold:hover {
+  background: linear-gradient(135deg, #fb7185 0%, #f43f5e 50%, #e11d48 100%);
+  box-shadow: 0 8px 24px rgba(225, 29, 72, 0.45);
+  transform: translateY(-1.5px);
+}
+
+.btn-soft-rose, .btn-gold-light {
+  background: rgba(254, 226, 226, 0.85);
+  color: #be185d;
+  border: 1px solid rgba(251, 113, 133, 0.4);
+  transition: all 0.2s ease;
+}
+
+.btn-soft-rose:hover, .btn-gold-light:hover {
+  background: rgba(253, 205, 211, 0.95);
+  color: #9f1239;
+  border-color: #f43f5e;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(244, 63, 94, 0.18);
+}
+
+/* ================= PACIENTES: INTERACCIÓN TÁCTIL Y CURSOR ================= */
+
+.paciente-item {
+  position: relative;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+.paciente-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(180deg, #f43f5e, #be185d);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  border-radius: 4px 0 0 4px;
+}
+
+.paciente-item:hover::before,
+.paciente-item.selected::before {
+  opacity: 1;
+}
+
+.paciente-item:hover {
+  transform: translateX(4px);
+  box-shadow: 0 8px 20px -3px rgba(225, 29, 72, 0.12);
+}
+
+/* ================= ODONTOGRAMA: ELEVACIÓN Y BRILLO FLORAL ================= */
+
+.diente-box {
+  transition: transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
+  cursor: pointer;
+}
+
+.diente-box:hover {
+  transform: translateY(-6px) scale(1.16);
+  z-index: 25;
+}
+
+.diente-box:hover .diente-svg-wrap svg {
+  filter: drop-shadow(0 8px 14px rgba(244, 63, 94, 0.36));
+}
+
+.diente-surface {
+  transition: fill 0.14s ease, filter 0.14s ease;
+}
+
+.diente-surface:hover {
+  filter: brightness(0.92) contrast(1.1);
+}
+
+.btn-tool-odontograma {
+  transition: all 0.18s ease;
+}
+
+.btn-tool-odontograma:hover {
+  transform: translateY(-1px);
+}
+
+.btn-tool-odontograma.tool-active {
+  background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%) !important;
+  color: #ffffff !important;
+  border-color: #be185d !important;
+  box-shadow: 0 4px 14px rgba(225, 29, 72, 0.38);
+  transform: translateY(-1.5px);
+}
+
+/* ================= PESTAÑAS ACTIVAS CON GRADIENTE ROSA ================= */
+
+.tab-btn {
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.tab-btn.active {
+  color: #e11d48;
+  font-weight: 800;
+}
+
+.tab-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #fb7185, #e11d48, #be185d);
+  border-radius: 3px 3px 0 0;
+  box-shadow: 0 2px 10px rgba(244, 63, 94, 0.45);
+}
+
+/* ================= ALERTA DE ALERGIA ================= */
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.94; transform: scale(0.996); }
+}
+
+.alerta-alergia-badge {
+  animation: pulse-subtle 2.5s infinite ease-in-out;
+  background: linear-gradient(135deg, #fff1f2 0%, #ffe4e6 100%);
+}
+
+/* ================= SCROLLBAR PERSONALIZADO ROSA ================= */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(252, 231, 243, 0.3);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(244, 63, 94, 0.35);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(225, 29, 72, 0.65);
+}
+
+/* ================= TOAST NOTIFICATIONS ================= */
+
+#toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 999999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.toast {
+  padding: 12px 20px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 16px 30px -4px rgba(0, 0, 0, 0.15), 0 6px 14px -2px rgba(0, 0, 0, 0.08);
+  animation: slideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  max-width: 400px;
+  backdrop-filter: blur(18px);
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.toast-success {
+  background-color: rgba(190, 24, 93, 0.95);
+  color: #ffffff;
+  border: 1px solid rgba(251, 113, 133, 0.5);
+}
+
+.toast-error {
+  background-color: rgba(153, 27, 27, 0.95);
+  color: #ffffff;
+  border: 1px solid rgba(248, 113, 113, 0.5);
+}
+
+.toast-info {
+  background-color: rgba(159, 18, 57, 0.95);
+  color: #ffffff;
+  border: 1px solid rgba(244, 63, 94, 0.5);
+}
+
+/* ================= ADAPTACIONES RESPONSIVE ================= */
+
+@media (max-width: 768px) {
+  body {
+    font-size: 13px;
+  }
+
+  .glass-panel {
+    border-radius: 20px;
+    padding: 14px !important;
+  }
+
+  .arcada-section {
+    padding: 12px !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  button, input, select, textarea {
+    min-height: 42px;
+  }
+
+  #toast-container {
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .toast {
+    max-width: 100%;
+  }
+}
+
+/* ================= REGLAS DE IMPRESIÓN ================= */
+@media print {
+  body {
+    background: #ffffff !important;
+  }
+
+  #mouse-spotlight-layer,
+  #mouse-cursor-orb {
+    display: none !important;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+  
+  #modal-pdf-preview,
+  #modal-pdf-preview * {
+    visibility: visible;
+  }
+
+  #modal-pdf-preview {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: #ffffff !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}
