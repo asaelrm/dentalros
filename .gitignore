@@ -1,0 +1,13 @@
+# Sistema Operativo y temporales
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Logs
+*.log
+
+# Base de datos local persistente
+data/odontologia.sqlite
+data/odontologia.sqlite-journal
+data/odontologia.sqlite-shm
+data/odontologia.sqlite-wal
