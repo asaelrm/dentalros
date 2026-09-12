@@ -1,0 +1,1049 @@
+/* =========================================================
+   SISTEMA ODONTOLÓGICO DENTALROS
+   TEMA GLASSMORFISMO ROSA FLOR DE LOTO & CUARZO ROSA
+   Armonía pura con el logotipo oficial (Rosado / Peonía / Loto)
+   Efectos dinámicos de desplazamiento del mouse
+   ========================================================= */
+
+:root {
+  /* Coordenadas dinámicas del mouse */
+  --mouse-x: 50vw;
+  --mouse-y: 50vh;
+
+  /* Paleta Rosado Flor de Loto DentalRos */
+  --rose-primary: #e11d48;
+  --rose-bright: #f43f5e;
+  --rose-soft: #fb7185;
+  --rose-light: #fda4af;
+  --rose-pale: #ffe4e6;
+  --rose-blush: #fff1f2;
+  --rose-deep: #9f1239;
+
+  --lotus-50: #fdf2f8;
+  --lotus-100: #fce7f3;
+  --lotus-200: #fbcfe8;
+  --lotus-400: #f472b6;
+  --lotus-500: #ec4899;
+  --lotus-600: #db2777;
+  --lotus-700: #be185d;
+
+  --gold-accent: #d4af37; /* Toque muy sutil del borde del diente */
+  
+  --text-dark: #1f1217;
+  --text-body: #372b31;
+  --text-muted: #6e5863;
+
+  /* Glassmorfismo Cuarzo */
+  --glass-bg: rgba(255, 255, 255, 0.82);
+  --glass-border: rgba(255, 255, 255, 0.9);
+  --glass-shadow: 0 16px 36px -6px rgba(225, 29, 72, 0.08), 0 4px 14px -2px rgba(0, 0, 0, 0.03);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  color: var(--text-dark);
+  margin: 0;
+  padding: 0;
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+  /* Fondo ambiental suave: Brumas de Flor de Loto, Rosa Cuarzo y Perla */
+  background: 
+    radial-gradient(at 0% 0%, rgba(254, 226, 226, 0.55) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(252, 231, 243, 0.6) 0px, transparent 50%),
+    radial-gradient(at 50% 100%, rgba(255, 241, 242, 0.65) 0px, transparent 55%),
+    radial-gradient(at 100% 100%, rgba(243, 232, 255, 0.4) 0px, transparent 50%),
+    #faf7f8;
+  background-attachment: fixed;
+}
+
+/* ================= EFECTO SPOTLIGHT / LUZ QUE SIGUE AL MOUSE ================= */
+
+#mouse-spotlight-layer {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 1;
+  background: radial-gradient(
+    650px circle at var(--mouse-x, 50vw) var(--mouse-y, 50vh),
+    rgba(244, 63, 94, 0.11),
+    rgba(236, 72, 153, 0.06) 40%,
+    transparent 70%
+  );
+  transition: opacity 0.25s ease;
+  will-change: background;
+}
+
+/* Cursor de brillo estético rosado */
+#mouse-cursor-orb {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  pointer-events: none;
+  z-index: 99999;
+  background: radial-gradient(circle, rgba(244, 63, 94, 0.35) 0%, rgba(236, 72, 153, 0.1) 70%, transparent 100%);
+  transform: translate(calc(var(--mouse-x, -100px) - 16px), calc(var(--mouse-y, -100px) - 16px));
+  transition: transform 0.06s cubic-bezier(0.2, 0.9, 0.3, 1);
+  mix-blend-mode: multiply;
+}
+
+@media (max-width: 768px) {
+  #mouse-cursor-orb {
+    display: none;
+  }
+}
+
+/* ================= GLASSMORFISMO ROSA PREMIUM ================= */
+
+.glass-header {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-bottom: 1px solid rgba(244, 63, 94, 0.18);
+  box-shadow: 0 4px 24px -2px rgba(225, 29, 72, 0.06);
+  position: relative;
+  z-index: 40;
+}
+
+.glass-panel {
+  background: rgba(255, 255, 255, 0.82);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: var(--glass-shadow);
+  position: relative;
+  z-index: 10;
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(251, 207, 232, 0.65);
+  box-shadow: 0 6px 20px -2px rgba(225, 29, 72, 0.04);
+  transition: all 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+  position: relative;
+  overflow: hidden;
+}
+
+/* Resplandor magnético rosado en tarjetas al pasar el cursor */
+.glass-card::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(350px circle at var(--card-mouse-x, 50%) var(--card-mouse-y, 50%), rgba(244, 63, 94, 0.12), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+.glass-card:hover::after {
+  opacity: 1;
+}
+
+.glass-card:hover {
+  transform: translateY(-3px) scale(1.006);
+  box-shadow: 0 16px 32px -4px rgba(225, 29, 72, 0.12), 0 4px 14px rgba(244, 63, 94, 0.08);
+  border-color: rgba(244, 63, 94, 0.45);
+}
+
+.glass-modal {
+  background: rgba(255, 255, 255, 0.96);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
+  border: 1px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 25px 60px -10px rgba(225, 29, 72, 0.18);
+  position: relative;
+  z-index: 55;
+}
+
+.modal-backdrop {
+  background-color: rgba(35, 15, 22, 0.5);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}
+
+/* ================= ACCESO Y GESTIÓN DE USUARIOS ================= */
+
+.auth-screen {
+  position: relative;
+  z-index: 20;
+  background:
+    radial-gradient(circle at 15% 15%, rgba(244, 63, 94, 0.18), transparent 30%),
+    radial-gradient(circle at 90% 80%, rgba(236, 72, 153, 0.13), transparent 28%);
+}
+
+.auth-layout {
+  min-height: 620px;
+  display: grid;
+  grid-template-columns: minmax(320px, 0.9fr) minmax(390px, 1.1fr);
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.98);
+  box-shadow: 0 30px 90px -28px rgba(76, 5, 25, 0.38);
+  backdrop-filter: blur(22px);
+}
+
+.auth-brand-panel {
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  padding: clamp(2rem, 5vw, 4rem);
+  color: #fff;
+  background:
+    linear-gradient(145deg, rgba(76, 5, 25, 0.96), rgba(159, 18, 57, 0.93)),
+    #881337;
+}
+
+.auth-brand-panel::before,
+.auth-brand-panel::after {
+  content: '';
+  position: absolute;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 50%;
+}
+
+.auth-brand-panel::before {
+  width: 360px;
+  height: 360px;
+  top: -130px;
+  right: -170px;
+  box-shadow: 0 0 0 55px rgba(255, 255, 255, 0.035), 0 0 0 110px rgba(255, 255, 255, 0.025);
+}
+
+.auth-brand-panel::after {
+  width: 210px;
+  height: 210px;
+  left: -110px;
+  bottom: -90px;
+  box-shadow: 0 0 0 42px rgba(255, 255, 255, 0.035);
+}
+
+.auth-brand-content {
+  position: relative;
+  z-index: 2;
+  max-width: 410px;
+}
+
+.auth-logo {
+  width: 82px;
+  height: 82px;
+  object-fit: contain;
+  padding: 4px;
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 16px 35px rgba(0, 0, 0, 0.2);
+}
+
+.auth-eyebrow,
+.auth-kicker,
+.section-eyebrow {
+  margin: 1.5rem 0 0.55rem;
+  color: #fda4af;
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.auth-brand-content h1 {
+  margin: 0;
+  max-width: 380px;
+  font-size: clamp(2rem, 4vw, 3.35rem);
+  line-height: 1.02;
+  letter-spacing: -0.045em;
+}
+
+.auth-brand-content > p:not(.auth-eyebrow) {
+  max-width: 390px;
+  margin: 1.2rem 0 0;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 0.92rem;
+  line-height: 1.7;
+}
+
+.auth-feature-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1.8rem;
+}
+
+.auth-feature-list span {
+  padding: 0.45rem 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 999px;
+  color: rgba(255, 255, 255, 0.86);
+  background: rgba(255, 255, 255, 0.08);
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.auth-form-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 620px;
+  padding: clamp(2rem, 6vw, 5rem);
+}
+
+.auth-form-content,
+.auth-state {
+  width: min(100%, 390px);
+}
+
+.auth-state {
+  color: #881337;
+  text-align: center;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.auth-spinner {
+  width: 40px;
+  height: 40px;
+  margin: 0 auto 1rem;
+  border: 4px solid #ffe4e6;
+  border-top-color: #e11d48;
+  border-radius: 50%;
+  animation: auth-spin 0.8s linear infinite;
+}
+
+@keyframes auth-spin {
+  to { transform: rotate(360deg); }
+}
+
+.auth-kicker,
+.section-eyebrow {
+  margin-top: 0;
+  color: #be185d;
+}
+
+.auth-form-content h2 {
+  margin: 0;
+  color: #1f1217;
+  font-size: clamp(1.65rem, 3vw, 2.2rem);
+  letter-spacing: -0.035em;
+}
+
+.auth-description {
+  margin: 0.65rem 0 1.7rem;
+  color: #6e5863;
+  font-size: 0.83rem;
+  line-height: 1.6;
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.auth-form label,
+.user-edit-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.42rem;
+  color: #4c0519;
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.auth-form input,
+.auth-form select,
+.user-edit-grid input,
+.user-edit-grid select {
+  width: 100%;
+  min-height: 45px;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid #fecdd3;
+  border-radius: 13px;
+  outline: none;
+  color: #1f2937;
+  background: rgba(255, 255, 255, 0.9);
+  font: inherit;
+  font-weight: 600;
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+
+.auth-form input:focus,
+.auth-form select:focus,
+.user-edit-grid input:focus,
+.user-edit-grid select:focus {
+  border-color: #f43f5e;
+  background: #fff;
+  box-shadow: 0 0 0 4px rgba(244, 63, 94, 0.1);
+}
+
+.auth-submit {
+  min-height: 46px;
+  margin-top: 0.25rem;
+  border-radius: 14px;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.auth-legacy-button {
+  width: 100%;
+  margin-top: 0.75rem;
+}
+
+.auth-help,
+.form-note {
+  margin: 1.2rem 0 0;
+  color: #8b6b79;
+  font-size: 0.7rem;
+  line-height: 1.6;
+}
+
+.auth-message {
+  width: min(100%, 390px);
+  margin: 1rem auto 0;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid #fecaca;
+  border-radius: 12px;
+  color: #991b1b;
+  background: #fef2f2;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.auth-message[data-type="success"] {
+  border-color: #a7f3d0;
+  color: #065f46;
+  background: #ecfdf5;
+}
+
+.user-menu-wrap {
+  position: relative;
+}
+
+.user-menu-trigger {
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.28rem 0.55rem;
+  border: 1px solid rgba(251, 113, 133, 0.4);
+  border-radius: 14px;
+  color: #4c0519;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 5px 16px rgba(225, 29, 72, 0.08);
+}
+
+.user-menu-trigger strong {
+  max-width: 130px;
+  font-size: 0.69rem;
+}
+
+.user-menu-trigger small {
+  color: #be185d;
+  font-size: 0.58rem;
+  font-weight: 800;
+}
+
+.user-avatar {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  border-radius: 11px;
+  color: #fff;
+  background: linear-gradient(145deg, #f43f5e, #9f1239);
+  font-size: 0.68rem;
+  font-weight: 950;
+}
+
+.user-menu-panel {
+  position: absolute;
+  top: calc(100% + 0.65rem);
+  right: 0;
+  z-index: 80;
+  width: 240px;
+  overflow: hidden;
+  padding: 0.45rem;
+  border: 1px solid #fecdd3;
+  border-radius: 17px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 22px 50px -15px rgba(76, 5, 25, 0.3);
+}
+
+.user-menu-identity {
+  display: flex;
+  flex-direction: column;
+  padding: 0.7rem 0.75rem 0.8rem;
+  border-bottom: 1px solid #ffe4e6;
+}
+
+.user-menu-identity strong {
+  color: #1f1217;
+  font-size: 0.78rem;
+}
+
+.user-menu-identity span {
+  margin-top: 0.16rem;
+  color: #9f1239;
+  font-size: 0.67rem;
+  font-weight: 700;
+}
+
+.user-menu-panel button {
+  width: 100%;
+  padding: 0.7rem 0.75rem;
+  border: 0;
+  border-radius: 11px;
+  color: #4b3740;
+  background: transparent;
+  text-align: left;
+  font-size: 0.72rem;
+  font-weight: 750;
+}
+
+.user-menu-panel button:hover {
+  color: #9f1239;
+  background: #fff1f2;
+}
+
+.user-menu-panel .user-menu-danger {
+  color: #b91c1c;
+}
+
+.modal-close-button,
+.secondary-button {
+  min-height: 38px;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  color: #475569;
+  background: #f8fafc;
+  font-size: 0.7rem;
+  font-weight: 800;
+}
+
+.user-admin-grid {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.72fr) minmax(420px, 1.28fr);
+  gap: 1.5rem;
+}
+
+.user-create-panel {
+  align-self: start;
+  padding: 1.25rem;
+  border: 1px solid #fecdd3;
+  border-radius: 20px;
+  background: linear-gradient(145deg, #fff7f8, #fff);
+}
+
+.user-create-panel h4,
+.user-list-heading h4 {
+  margin: 0 0 1rem;
+  color: #4c0519;
+  font-size: 1rem;
+}
+
+.compact-form {
+  gap: 0.75rem;
+}
+
+.user-list-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.user-count-badge,
+.self-badge {
+  padding: 0.25rem 0.55rem;
+  border: 1px solid #fecdd3;
+  border-radius: 999px;
+  color: #9f1239;
+  background: #fff1f2;
+  font-size: 0.62rem;
+  font-weight: 900;
+}
+
+.user-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.user-list-empty {
+  color: #7c6470;
+  font-size: 0.75rem;
+}
+
+.user-card {
+  padding: 1rem;
+  border: 1px solid #fbcfe8;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: 0 8px 24px -16px rgba(76, 5, 25, 0.35);
+}
+
+.user-card-inactive {
+  opacity: 0.64;
+  background: #f8fafc;
+}
+
+.user-card-status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.8rem;
+  color: #1f1217;
+  font-size: 0.78rem;
+}
+
+.role-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #94a3b8;
+  box-shadow: 0 0 0 4px #f1f5f9;
+}
+
+.role-admin { background: #e11d48; box-shadow: 0 0 0 4px #ffe4e6; }
+.role-editor { background: #059669; box-shadow: 0 0 0 4px #d1fae5; }
+
+.user-edit-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.7rem;
+}
+
+.user-edit-grid input,
+.user-edit-grid select {
+  min-height: 39px;
+  padding: 0.5rem 0.65rem;
+  font-size: 0.7rem;
+}
+
+.user-edit-grid .active-toggle {
+  flex-direction: row;
+  align-items: center;
+  align-self: end;
+  min-height: 39px;
+}
+
+.active-toggle input {
+  width: 17px;
+  min-height: 17px;
+}
+
+.user-card-actions,
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+
+.user-card-actions button {
+  min-height: 34px;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid #fecdd3;
+  border-radius: 10px;
+  color: #9f1239;
+  background: #fff1f2;
+  font-size: 0.64rem;
+  font-weight: 850;
+}
+
+.user-card-actions .btn-user-save {
+  color: #fff;
+  border-color: #e11d48;
+  background: #e11d48;
+}
+
+.user-card-actions .btn-user-delete {
+  color: #b91c1c;
+  border-color: #fecaca;
+  background: #fef2f2;
+}
+
+button:disabled,
+input:disabled,
+select:disabled,
+textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.read-only-form input:disabled,
+.read-only-form textarea:disabled,
+.read-only-form select:disabled {
+  color: #334155;
+  background: rgba(248, 250, 252, 0.78);
+  opacity: 1;
+}
+
+/* ================= BOTONES ROSA LOTO (PEONÍA & CUARZO) ================= */
+
+.btn-primary, .btn-gold {
+  background: linear-gradient(135deg, #f43f5e 0%, #e11d48 50%, #be185d 100%);
+  color: #ffffff;
+  box-shadow: 0 4px 16px rgba(225, 29, 72, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  position: relative;
+  overflow: hidden;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.btn-primary::after, .btn-gold::after {
+  content: '';
+  position: absolute;
+  top: -60%;
+  left: -90%;
+  width: 60%;
+  height: 220%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  transform: rotate(25deg);
+  transition: left 0.7s ease;
+  pointer-events: none;
+}
+
+.btn-primary:hover::after, .btn-gold:hover::after {
+  left: 140%;
+}
+
+.btn-primary:hover, .btn-gold:hover {
+  background: linear-gradient(135deg, #fb7185 0%, #f43f5e 50%, #e11d48 100%);
+  box-shadow: 0 8px 24px rgba(225, 29, 72, 0.45);
+  transform: translateY(-1.5px);
+}
+
+.btn-soft-rose, .btn-gold-light {
+  background: rgba(254, 226, 226, 0.85);
+  color: #be185d;
+  border: 1px solid rgba(251, 113, 133, 0.4);
+  transition: all 0.2s ease;
+}
+
+.btn-soft-rose:hover, .btn-gold-light:hover {
+  background: rgba(253, 205, 211, 0.95);
+  color: #9f1239;
+  border-color: #f43f5e;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(244, 63, 94, 0.18);
+}
+
+/* ================= PACIENTES: INTERACCIÓN TÁCTIL Y CURSOR ================= */
+
+.paciente-item {
+  position: relative;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  overflow: hidden;
+}
+
+.paciente-item::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: linear-gradient(180deg, #f43f5e, #be185d);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+  border-radius: 4px 0 0 4px;
+}
+
+.paciente-item:hover::before,
+.paciente-item.selected::before {
+  opacity: 1;
+}
+
+.paciente-item:hover {
+  transform: translateX(4px);
+  box-shadow: 0 8px 20px -3px rgba(225, 29, 72, 0.12);
+}
+
+/* ================= ODONTOGRAMA: ELEVACIÓN Y BRILLO FLORAL ================= */
+
+.diente-box {
+  transition: transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
+  cursor: pointer;
+}
+
+.diente-box:hover {
+  transform: translateY(-6px) scale(1.16);
+  z-index: 25;
+}
+
+.diente-box:hover .diente-svg-wrap svg {
+  filter: drop-shadow(0 8px 14px rgba(244, 63, 94, 0.36));
+}
+
+.diente-surface {
+  transition: fill 0.14s ease, filter 0.14s ease;
+}
+
+.diente-surface:hover {
+  filter: brightness(0.92) contrast(1.1);
+}
+
+.btn-tool-odontograma {
+  transition: all 0.18s ease;
+}
+
+.btn-tool-odontograma:hover {
+  transform: translateY(-1px);
+}
+
+.btn-tool-odontograma.tool-active {
+  background: linear-gradient(135deg, #f43f5e 0%, #e11d48 100%) !important;
+  color: #ffffff !important;
+  border-color: #be185d !important;
+  box-shadow: 0 4px 14px rgba(225, 29, 72, 0.38);
+  transform: translateY(-1.5px);
+}
+
+/* ================= PESTAÑAS ACTIVAS CON GRADIENTE ROSA ================= */
+
+.tab-btn {
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.tab-btn.active {
+  color: #e11d48;
+  font-weight: 800;
+}
+
+.tab-btn.active::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, #fb7185, #e11d48, #be185d);
+  border-radius: 3px 3px 0 0;
+  box-shadow: 0 2px 10px rgba(244, 63, 94, 0.45);
+}
+
+/* ================= ALERTA DE ALERGIA ================= */
+
+@keyframes pulse-subtle {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.94; transform: scale(0.996); }
+}
+
+.alerta-alergia-badge {
+  animation: pulse-subtle 2.5s infinite ease-in-out;
+  background: linear-gradient(135deg, #fff1f2 0%, #ffe4e6 100%);
+}
+
+/* ================= SCROLLBAR PERSONALIZADO ROSA ================= */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: rgba(252, 231, 243, 0.3);
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(244, 63, 94, 0.35);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(225, 29, 72, 0.65);
+}
+
+/* ================= TOAST NOTIFICATIONS ================= */
+
+#toast-container {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 999999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.toast {
+  padding: 12px 20px;
+  border-radius: 16px;
+  font-size: 13px;
+  font-weight: 800;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 16px 30px -4px rgba(0, 0, 0, 0.15), 0 6px 14px -2px rgba(0, 0, 0, 0.08);
+  animation: slideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  max-width: 400px;
+  backdrop-filter: blur(18px);
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+.toast-success {
+  background-color: rgba(190, 24, 93, 0.95);
+  color: #ffffff;
+  border: 1px solid rgba(251, 113, 133, 0.5);
+}
+
+.toast-error {
+  background-color: rgba(153, 27, 27, 0.95);
+  color: #ffffff;
+  border: 1px solid rgba(248, 113, 113, 0.5);
+}
+
+.toast-info {
+  background-color: rgba(159, 18, 57, 0.95);
+  color: #ffffff;
+  border: 1px solid rgba(244, 63, 94, 0.5);
+}
+
+/* ================= ADAPTACIONES RESPONSIVE ================= */
+
+@media (max-width: 768px) {
+  body {
+    font-size: 13px;
+  }
+
+  .glass-panel {
+    border-radius: 20px;
+    padding: 14px !important;
+  }
+
+  .arcada-section {
+    padding: 12px !important;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  button, input, select, textarea {
+    min-height: 42px;
+  }
+
+  #toast-container {
+    left: 16px;
+    right: 16px;
+    bottom: 16px;
+  }
+
+  .toast {
+    max-width: 100%;
+  }
+
+  .auth-screen {
+    align-items: flex-start;
+    padding: 0;
+  }
+
+  .auth-layout {
+    min-height: 100vh;
+    grid-template-columns: 1fr;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .auth-brand-panel {
+    min-height: 255px;
+    align-items: center;
+    padding: 2rem 1.5rem;
+  }
+
+  .auth-logo {
+    width: 64px;
+    height: 64px;
+    border-radius: 18px;
+  }
+
+  .auth-brand-content h1 {
+    max-width: 300px;
+    font-size: 2rem;
+  }
+
+  .auth-brand-content > p:not(.auth-eyebrow),
+  .auth-feature-list {
+    display: none;
+  }
+
+  .auth-form-panel {
+    min-height: auto;
+    align-items: flex-start;
+    padding: 2rem 1.5rem 3rem;
+  }
+
+  .user-admin-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .user-edit-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .user-menu-panel {
+    position: fixed;
+    top: 70px;
+    right: 12px;
+  }
+}
+
+/* ================= REGLAS DE IMPRESIÓN ================= */
+@media print {
+  body {
+    background: #ffffff !important;
+  }
+
+  #mouse-spotlight-layer,
+  #mouse-cursor-orb {
+    display: none !important;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+  
+  #modal-pdf-preview,
+  #modal-pdf-preview * {
+    visibility: visible;
+  }
+
+  #modal-pdf-preview {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    background: #ffffff !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+}
