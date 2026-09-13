@@ -1056,3 +1056,5 @@ textarea:disabled {
 .catalog-entry{display:flex;justify-content:space-between;gap:12px;align-items:center;border-bottom:1px solid #fce7f3;padding:12px 0}.catalog-entry small{display:block;margin-top:5px;color:#64748b}
 .procedure-detail{width:100%;margin:12px 0;font-size:12px;border-collapse:collapse}.procedure-detail td,.procedure-detail th{padding:8px;text-align:left;border-bottom:1px solid #fce7f3}
 @media(max-width:480px){.procedure-line{grid-template-columns:1fr}.procedure-detail td,.procedure-detail th{padding:5px;font-size:11px}}
+.invoice-status{display:inline-block;margin-top:8px;padding:4px 9px;border-radius:999px;font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.04em}
+.invoice-status-cerrada{background:#e2e8f0;color:#334155}.invoice-status-abierta{background:#fef3c7;color:#92400e}.invoice-status-pendiente{background:#ffe4e6;color:#9f1239}

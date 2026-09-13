@@ -378,6 +378,13 @@
               <span id="consultas-count-badge"
                 class="text-[10px] px-2 py-0.5 bg-rose-100 text-rose-900 rounded-full font-black border border-rose-200">0</span>
             </button>
+            <button type="button"
+              class="tab-btn pb-3 text-slate-500 hover:text-rose-700 transition flex items-center gap-2 shrink-0"
+              data-tab="facturas">
+              <span>🧾</span> Facturas
+              <span id="facturas-count-badge"
+                class="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-900 rounded-full font-black border border-emerald-200">0</span>
+            </button>
           </div>
         </div>
 
@@ -512,6 +519,15 @@
           <div id="consultas-timeline" class="flex flex-col gap-3">
             <!-- Se llena dinámicamente -->
           </div>
+        </div>
+
+        <!-- PESTAÑA 4: FACTURACIÓN -->
+        <div id="tab-pane-facturas" class="tab-content hidden flex flex-col gap-4">
+          <div class="glass-panel p-4 sm:p-5 rounded-3xl">
+            <h3 class="text-sm font-black text-rose-950">Facturación del paciente</h3>
+            <p class="text-xs text-slate-500 mt-1">Las facturas se crean a partir de las consultas. Aquí puedes ver borradores, cerrar facturas y consultar las cerradas.</p>
+          </div>
+          <div id="facturas-list" class="flex flex-col gap-3"></div>
         </div>
 
       </div>

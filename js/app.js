@@ -240,6 +240,7 @@ class OdontoApp {
     this.renderPacienteHeader();
     this.renderHistoriaClinicaForm();
     this.renderConsultasTimeline();
+    this.renderFacturas();
     
     // Inicializar odontograma del paciente
     if (this.odontogramaComponent) {
@@ -396,12 +397,46 @@ class OdontoApp {
           await window.odontoDB.deleteConsulta(btn.dataset.id);
           this.currentConsultas = await window.odontoDB.getConsultas(this.currentPacienteId);
           this.renderConsultasTimeline();
+          this.renderFacturas();
           this.showToast('Consulta eliminada del récord.');
         }
       });
     });
     listEl.querySelectorAll('.btn-open-factura').forEach(btn => {
       btn.addEventListener('click', () => this.openFacturaModal(Number(btn.dataset.id)));
+    });
+  }
+
+  renderFacturas() {
+    const list = document.getElementById('facturas-list');
+    const badge = document.getElementById('facturas-count-badge');
+    if (!list) return;
+    const consultations = this.currentConsultas || [];
+    const invoices = consultations.filter(item => item.factura);
+    if (badge) badge.textContent = String(invoices.length);
+    if (!consultations.length) {
+      list.innerHTML = '<div class="glass-panel p-6 rounded-3xl text-center text-slate-500">Primero registra una consulta clínica para poder crear su factura.</div>';
+      return;
+    }
+    const escape = window.escapeHTML;
+    list.innerHTML = consultations.map(consultation => {
+      const invoice = consultation.factura;
+      const status = invoice?.estado || 'pendiente';
+      const canCreate = window.authManager.hasPermission('invoice.write');
+      return `<article class="glass-card p-4 sm:p-5 rounded-2xl border border-rose-200/70 flex flex-wrap items-center justify-between gap-4">
+        <div>
+          <p class="text-xs text-slate-500">Consulta del ${escape(consultation.fecha || 'sin fecha')}</p>
+          <h4 class="font-black text-rose-950 mt-1">${invoice ? escape(invoice.diagnostico) : 'Factura pendiente de preparar'}</h4>
+          <span class="invoice-status invoice-status-${status}">${status === 'cerrada' ? 'Cerrada' : status === 'abierta' ? 'Borrador abierto' : 'Pendiente'}</span>
+        </div>
+        <div class="text-right">
+          <strong class="block text-xl text-emerald-800">${invoice ? `$${Number(invoice.total).toFixed(2)}` : '—'}</strong>
+          ${invoice || canCreate ? `<button type="button" class="btn-tab-factura btn-primary px-4 py-2 rounded-xl mt-2" data-id="${Number(consultation.id)}">${invoice ? 'Abrir factura' : 'Crear factura'}</button>` : ''}
+        </div>
+      </article>`;
+    }).join('');
+    list.querySelectorAll('.btn-tab-factura').forEach(button => {
+      button.addEventListener('click', () => this.openFacturaModal(Number(button.dataset.id)));
     });
   }
 
@@ -629,6 +664,7 @@ class OdontoApp {
           this.closeModal('modal-consulta');
           this.currentConsultas = await window.odontoDB.getConsultas(this.currentPacienteId);
           this.renderConsultasTimeline();
+          this.renderFacturas();
           this.showToast('✅ Consulta y evolución registradas con éxito.');
         } catch (err) {
           console.error('Error al guardar consulta:', err);
@@ -886,6 +922,7 @@ class OdontoApp {
       });
       this.currentConsultas = this.currentConsultas.map(item => item.id === consultaId ? saved : item);
       this.renderConsultasTimeline();
+      this.renderFacturas();
       if (!quiet) {
         await this.openFacturaModal(consultaId);
         document.getElementById('factura-message').textContent = 'Borrador guardado correctamente.';
@@ -906,6 +943,7 @@ class OdontoApp {
       const saved = await window.odontoDB.closeFactura(consultaId);
       this.currentConsultas = this.currentConsultas.map(item => item.id === consultaId ? saved : item);
       this.renderConsultasTimeline();
+      this.renderFacturas();
       await this.openFacturaModal(consultaId);
       this.showToast('Factura cerrada correctamente.');
     } catch {}
@@ -918,6 +956,7 @@ class OdontoApp {
       const saved = await window.odontoDB.reopenFactura(consultaId);
       this.currentConsultas = this.currentConsultas.map(item => item.id === consultaId ? saved : item);
       this.renderConsultasTimeline();
+      this.renderFacturas();
       await this.openFacturaModal(consultaId);
       this.showToast('Factura reabierta por el administrador.');
     } catch (error) { this.showToast(error.message, 'error'); }
