@@ -767,8 +767,16 @@ async function handleCatalog(req, res, pathname, context, auth) {
     if (previous.tipo !== item.tipo) throw new HttpError(400, 'No se puede cambiar el tipo de un elemento existente.');
   }
   runTransaction(db, () => {
-    if (id) db.prepare('UPDATE catalogo SET nombre = ?, codigo = ?, descripcion = ?, especialidad = ?, service_type = ?, precio_centavos = ?, activo = ? WHERE id = ?').run(item.nombre, item.codigo, item.descripcion, item.especialidad, item.serviceType, item.precioCentavos, Number(item.activo), id);
-    else id = Number(db.prepare('INSERT INTO catalogo (tipo, nombre, codigo, descripcion, especialidad, service_type, precio_centavos, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(item.tipo, item.nombre, item.codigo, item.descripcion, item.especialidad, item.serviceType, item.precioCentavos, Number(item.activo)).lastInsertRowid);
+    if (id) {
+      const storedCode = db.prepare('SELECT codigo FROM catalogo WHERE id = ?').get(id).codigo;
+      item.codigo = storedCode;
+      db.prepare('UPDATE catalogo SET nombre = ?, codigo = ?, descripcion = ?, especialidad = ?, service_type = ?, precio_centavos = ?, activo = ? WHERE id = ?').run(item.nombre, storedCode, item.descripcion, item.especialidad, item.serviceType, item.precioCentavos, Number(item.activo), id);
+    } else {
+      const sequence = db.prepare('SELECT next_value FROM catalog_sequences WHERE tipo = ?').get(item.tipo);
+      item.codigo = `${item.tipo === 'diagnostico' ? 'DGN' : 'PROC'}-${String(sequence.next_value).padStart(6, '0')}`;
+      db.prepare('UPDATE catalog_sequences SET next_value = next_value + 1 WHERE tipo = ?').run(item.tipo);
+      id = Number(db.prepare('INSERT INTO catalogo (tipo, nombre, codigo, descripcion, especialidad, service_type, precio_centavos, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(item.tipo, item.nombre, item.codigo, item.descripcion, item.especialidad, item.serviceType, item.precioCentavos, Number(item.activo)).lastInsertRowid);
+    }
     if (item.tipo === 'procedimiento') {
       const privateInsurer = db.prepare("SELECT id FROM insurers WHERE codigo = 'PRIVADO'").get();
       db.prepare(`INSERT INTO catalog_prices (catalog_id, insurance_id, price_centavos, created_at, updated_at) VALUES (?, ?, ?, ?, ?)

@@ -90,9 +90,11 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del cat√
   assert.equal((await f.request(`/api/users/${users.doctor.id}`, 'PUT', { role: 'admin' }, sessions.soporte)).status, 403);
   assert.equal((await f.request(`/api/users/${users.doctor.id}`, 'PUT', { email: 'intruso@example.test' }, sessions.soporte)).status, 403);
   const diagnosis = await f.request('/api/catalogo', 'POST', { tipo: 'diagnostico', nombre: 'Diagn√≥stico de prueba' }, sessions.doctor);
+  assert.equal(diagnosis.data.codigo, 'DGN-000001');
   assert.equal(diagnosis.status, 201);
   assert.equal((await f.request('/api/catalogo', 'POST', { tipo: 'procedimiento', nombre: 'No permitido', precio: 1 }, sessions.doctor)).status, 403);
   const procedure = await f.request('/api/catalogo', 'POST', { tipo: 'procedimiento', nombre: 'Procedimiento de prueba', precio: 12.35 }, f.admin);
+  assert.equal(procedure.data.codigo, 'PROC-000001');
   assert.equal(procedure.status, 201);
   for (const role of ['secretaria', 'auxiliar']) assert.equal((await f.request('/api/catalogo', 'POST', { tipo: 'procedimiento', nombre: 'No', precio: 1 }, sessions[role])).status, 403);
   const patient = await f.request('/api/pacientes', 'POST', { nombre: 'Paciente', apellido: 'Prueba' }, sessions.secretaria);

@@ -1030,7 +1030,7 @@
         <input type="hidden" name="id">
         <label>Tipo<select name="tipo"><option value="diagnostico">Diagnóstico</option><option value="procedimiento">Procedimiento</option></select></label>
         <label>Nombre<input name="nombre" maxlength="200" required></label>
-        <label>Código<input name="codigo" maxlength="50" placeholder="Ej: CON-001 o PROC-001"></label>
+        <label>Código<input name="codigo" maxlength="50" readonly placeholder="Código automático"><small id="catalog-code-help" class="block text-slate-500 mt-1">Se asignará automáticamente al guardar.</small></label>
         <label>Clase de servicio<select name="serviceType"><option value="procedimiento">Procedimiento</option><option value="consulta">Consulta</option></select></label>
         <label>Especialidad<input name="especialidad" maxlength="100" placeholder="Ej: Odontología general"></label>
         <label>Descripción<input name="descripcion" maxlength="500"></label>

@@ -121,6 +121,10 @@ function openDatabase(filename) {
         precio_centavos INTEGER NOT NULL DEFAULT 0 CHECK (precio_centavos >= 0),
         activo INTEGER NOT NULL DEFAULT 1 CHECK (activo IN (0, 1))
       ) STRICT;
+      CREATE TABLE IF NOT EXISTS catalog_sequences (
+        tipo TEXT PRIMARY KEY CHECK (tipo IN ('diagnostico', 'procedimiento')),
+        next_value INTEGER NOT NULL CHECK (next_value > 0)
+      ) STRICT;
       CREATE TABLE IF NOT EXISTS cash_payments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         consultation_id INTEGER NOT NULL UNIQUE REFERENCES consultas(id) ON DELETE RESTRICT,
@@ -174,6 +178,9 @@ function openDatabase(filename) {
     if (!catalogColumns.has('descripcion')) db.exec("ALTER TABLE catalogo ADD COLUMN descripcion TEXT NOT NULL DEFAULT ''");
     if (!catalogColumns.has('especialidad')) db.exec("ALTER TABLE catalogo ADD COLUMN especialidad TEXT NOT NULL DEFAULT ''");
     if (!catalogColumns.has('service_type')) db.exec("ALTER TABLE catalogo ADD COLUMN service_type TEXT NOT NULL DEFAULT 'procedimiento'");
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_catalog_code ON catalogo(tipo, codigo) WHERE codigo <> ''");
+    db.exec("INSERT OR IGNORE INTO catalog_sequences (tipo, next_value) SELECT 'diagnostico', COUNT(*) + 1 FROM catalogo WHERE tipo = 'diagnostico'");
+    db.exec("INSERT OR IGNORE INTO catalog_sequences (tipo, next_value) SELECT 'procedimiento', COUNT(*) + 1 FROM catalogo WHERE tipo = 'procedimiento'");
     const cashColumns = new Set(db.prepare('PRAGMA table_info(cash_payments)').all().map(column => column.name));
     if (!cashColumns.has('coverage_percent')) db.exec('ALTER TABLE cash_payments ADD COLUMN coverage_percent REAL NOT NULL DEFAULT 0');
     if (!cashColumns.has('insurance_covered_centavos')) db.exec('ALTER TABLE cash_payments ADD COLUMN insurance_covered_centavos INTEGER NOT NULL DEFAULT 0');

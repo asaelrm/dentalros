@@ -28,6 +28,10 @@ class CatalogManager {
   priceState() {
     const form = document.getElementById('form-catalogo');
     form.precio.disabled = form.tipo.value !== 'procedimiento' || !this.allowed('invoice.price');
+    form.codigo.readOnly = true;
+    form.codigo.placeholder = 'Código automático';
+    if (!form.elements.namedItem('id').value) form.codigo.value = '';
+    document.getElementById('catalog-code-help').textContent = `El sistema asignará el siguiente código ${form.tipo.value === 'diagnostico' ? 'DGN' : 'PROC'} al guardar.`;
   }
   resetForm() { const form = document.getElementById('form-catalogo'); form.reset(); form.elements.namedItem('id').value = ''; form.tipo.disabled = false; this.priceState(); }
   async open() {
@@ -42,7 +46,7 @@ class CatalogManager {
   renderCatalog() {
     const list = document.getElementById('catalog-list');
     const escape = window.escapeHTML;
-    list.innerHTML = this.items.length ? this.items.map(item => `<article class="catalog-entry"><div><strong>${escape(item.nombre)}</strong><small>${item.tipo === 'diagnostico' ? 'Diagnóstico' : `Procedimiento · $${(item.precioCentavos / 100).toFixed(2)}`} · ${item.activo ? 'Disponible' : 'Inactivo'}</small></div>${this.allowed('catalog.write') && (item.tipo === 'diagnostico' || this.allowed('invoice.price')) ? `<button type="button" data-id="${item.id}" class="secondary-button">Editar</button>` : ''}</article>`).join('') : '<p>No hay elementos. El administrador crea procedimientos y precios; administradores y doctores pueden registrar diagnósticos.</p>';
+    list.innerHTML = this.items.length ? this.items.map(item => `<article class="catalog-entry"><div><strong>${item.codigo ? `${escape(item.codigo)} · ` : ''}${escape(item.nombre)}</strong><small>${item.tipo === 'diagnostico' ? 'Diagnóstico' : `Procedimiento · $${(item.precioCentavos / 100).toFixed(2)}`} · ${item.activo ? 'Disponible' : 'Inactivo'}</small></div>${this.allowed('catalog.write') && (item.tipo === 'diagnostico' || this.allowed('invoice.price')) ? `<button type="button" data-id="${item.id}" class="secondary-button">Editar</button>` : ''}</article>`).join('') : '<p>No hay elementos. El administrador crea procedimientos y precios; administradores y doctores pueden registrar diagnósticos.</p>';
     list.querySelectorAll('button').forEach(button => button.addEventListener('click', () => {
       const item = this.items.find(item => item.id === Number(button.dataset.id));
       const form = document.getElementById('form-catalogo');
@@ -79,7 +83,7 @@ class CatalogManager {
     const button = form.querySelector('button[type="submit"]');
     button.disabled = true;
     try {
-      await window.odontoDB.saveCatalogo({ ...(form.elements.namedItem('id').value ? { id: Number(form.elements.namedItem('id').value) } : {}), tipo: form.tipo.value, nombre: form.nombre.value.trim(), codigo: form.codigo.value.trim(), serviceType: form.serviceType.value, especialidad: form.especialidad.value.trim(), descripcion: form.descripcion.value.trim(), precio: Number(form.precio.value), activo: form.activo.checked });
+      await window.odontoDB.saveCatalogo({ ...(form.elements.namedItem('id').value ? { id: Number(form.elements.namedItem('id').value) } : {}), tipo: form.tipo.value, nombre: form.nombre.value.trim(), codigo: '', serviceType: form.serviceType.value, especialidad: form.especialidad.value.trim(), descripcion: form.descripcion.value.trim(), precio: Number(form.precio.value), activo: form.activo.checked });
       await this.load(); this.renderCatalog(); this.resetForm();
       document.getElementById('catalog-message').textContent = 'Catálogo actualizado.';
     } catch (error) { document.getElementById('catalog-message').textContent = error.message; }
