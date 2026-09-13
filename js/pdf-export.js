@@ -9,13 +9,17 @@ class PDFExporter {
     this.previewModal = null;
   }
 
-  buildInvoiceHTML(paciente, consulta, config) {
+  buildInvoiceHTML(paciente, consulta, config, deliveredBy = {}) {
     const escape = window.escapeHTML || (value => String(value ?? ''));
     const invoice = consulta?.factura;
     if (!invoice) throw new Error('La consulta no tiene una factura guardada.');
     const money = centavos => (Number(centavos || 0) / 100).toFixed(2);
     const invoiceNumber = `FAC-${String(consulta.id).padStart(6, '0')}`;
-    const generatedDate = new Date().toLocaleDateString('es-ES');
+    const generatedAt = new Date();
+    const dateTime = value => new Date(value).toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' });
+    const generatedDateTime = dateTime(generatedAt);
+    const recordedDateTime = dateTime(invoice.cerradaEn || invoice.actualizadaEn || invoice.creadaEn || generatedAt);
+    const deliveredName = deliveredBy.displayName || deliveredBy.username || 'Usuario del sistema';
     const rows = (invoice.procedimientos || []).map((item, index) => `
       <tr style="border-bottom:1px solid #e2e8f0;">
         <td style="padding:10px 8px;text-align:center;">${index + 1}</td>
@@ -44,7 +48,7 @@ class PDFExporter {
       </header>
       <section style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:22px 0;padding:14px;background:#fff1f2;border-radius:8px;font-size:11px;">
         <div><strong style="color:#9f1239;">PACIENTE</strong><br><span style="font-size:14px;font-weight:700;">${escape(paciente.nombre)} ${escape(paciente.apellido)}</span><br>Cédula/DNI: ${escape(paciente.cedula || 'No especificada')}<br>Teléfono: ${escape(paciente.telefono || '-')}</div>
-        <div><strong style="color:#9f1239;">DATOS DE LA FACTURA</strong><br>Fecha de consulta: ${escape(consulta.fecha || generatedDate)}<br>Fecha de emisión: ${generatedDate}${invoice.cerradaEn ? `<br>Fecha de cierre: ${new Date(invoice.cerradaEn).toLocaleDateString('es-ES')}` : ''}</div>
+        <div><strong style="color:#9f1239;">DATOS DE LA FACTURA</strong><br>Fecha de consulta: ${escape(consulta.fecha || '-')}<br>Registro de factura: ${escape(recordedDateTime)}<br>Fecha y hora de emisión: ${escape(generatedDateTime)}</div>
       </section>
       <section style="margin-bottom:20px;font-size:12px;"><strong style="color:#9f1239;">DIAGNÓSTICO</strong><p style="white-space:pre-wrap;margin:6px 0;">${escape(invoice.diagnostico)}</p></section>
       <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;font-size:11px;">
@@ -52,12 +56,16 @@ class PDFExporter {
         <tbody>${rows || '<tr><td colspan="5" style="padding:18px;text-align:center;color:#64748b;">Sin procedimientos registrados</td></tr>'}</tbody>
       </table>
       <div style="display:flex;justify-content:flex-end;margin-top:18px;"><div style="min-width:260px;background:#fff1f2;border:1px solid #fecdd3;padding:14px 18px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;"><strong style="font-size:14px;color:#881337;">TOTAL</strong><strong style="font-size:24px;color:#047857;">$${Number(invoice.total || 0).toFixed(2)}</strong></div></div>
-      <footer style="margin-top:54px;text-align:center;border-top:1px solid #cbd5e1;padding-top:10px;font-size:10px;color:#64748b;">${escape(config?.piePagina || 'Gracias por confiar su salud dental en nosotros.')}</footer>
+      <section style="display:flex;justify-content:space-between;gap:40px;margin-top:72px;text-align:center;font-size:11px;page-break-inside:avoid;">
+        <div style="width:48%;border-top:1px solid #475569;padding-top:8px;"><strong>${escape(paciente.nombre)} ${escape(paciente.apellido)}</strong><br><span>Firma del paciente o responsable</span><br><small>Cédula/DNI: ${escape(paciente.cedula || '________________')}</small></div>
+        <div style="width:48%;border-top:1px solid #475569;padding-top:8px;"><strong>${escape(deliveredName)}</strong><br><span>Firma del personal que entrega</span>${deliveredBy.username ? `<br><small>Usuario: @${escape(deliveredBy.username)}</small>` : ''}</div>
+      </section>
+      <footer style="margin-top:30px;text-align:center;border-top:1px solid #cbd5e1;padding-top:10px;font-size:10px;color:#64748b;">${escape(config?.piePagina || 'Gracias por confiar su salud dental en nosotros.')}</footer>
     </div>`;
   }
 
-  async downloadInvoicePDF(paciente, consulta, config) {
-    const invoiceHtml = this.buildInvoiceHTML(paciente, consulta, config || {});
+  async downloadInvoicePDF(paciente, consulta, config, deliveredBy) {
+    const invoiceHtml = this.buildInvoiceHTML(paciente, consulta, config || {}, deliveredBy);
     const container = document.createElement('div');
     container.innerHTML = invoiceHtml;
     container.style.cssText = 'position:absolute;left:-9999px;top:0;width:800px;';
@@ -78,6 +86,15 @@ class PDFExporter {
     } finally {
       container.remove();
     }
+  }
+
+  printInvoice(paciente, consulta, config, deliveredBy) {
+    const invoiceHtml = this.buildInvoiceHTML(paciente, consulta, config || {}, deliveredBy);
+    const printWindow = window.open('', '_blank', 'width=900,height=800');
+    if (!printWindow) throw new Error('Permite las ventanas emergentes para imprimir la factura.');
+    printWindow.document.open();
+    printWindow.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Factura_FAC-${String(consulta.id).padStart(6, '0')}</title><style>@page{size:letter portrait;margin:8mm}body{margin:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body>${invoiceHtml}<script>window.onload=()=>setTimeout(()=>{window.focus();window.print()},300)<\/script></body></html>`);
+    printWindow.document.close();
   }
 
   // Genera el documento HTML completo del informe médico

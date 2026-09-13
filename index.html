@@ -738,12 +738,30 @@
         <p id="factura-message" role="status"></p>
         <div class="flex flex-wrap justify-end gap-2 pt-3 border-t border-rose-100">
           <button id="btn-reopen-factura" type="button" class="secondary-button" hidden>Reabrir factura</button>
-          <button id="btn-download-factura" type="button" class="secondary-button" hidden>📄 Descargar PDF</button>
+          <button id="btn-download-factura" type="button" class="secondary-button" hidden>📄 Ver factura / PDF</button>
           <button id="btn-save-factura" type="submit" class="secondary-button">Guardar borrador</button>
           <button id="btn-finalize-factura" type="button" class="btn-primary px-5 py-2.5 rounded-xl font-black">Cerrar factura</button>
         </div>
       </form>
     </section>
+  </div>
+
+  <!-- MODAL: PREVISUALIZACIÓN DE FACTURA -->
+  <div id="modal-factura-preview" class="fixed inset-0 z-[70] hidden items-center justify-center modal-backdrop p-3 sm:p-4" hidden>
+    <div class="glass-modal rounded-3xl max-w-4xl w-full p-4 sm:p-6 shadow-2xl border border-white max-h-[94vh] flex flex-col">
+      <div class="flex flex-wrap items-center justify-between border-b border-rose-100 pb-3 mb-3 gap-2 no-print">
+        <div>
+          <h3 class="text-sm sm:text-base font-black text-rose-950">Vista previa de la factura</h3>
+          <p class="text-[11px] text-slate-500">Revisa el documento antes de descargarlo o imprimirlo.</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button id="btn-print-factura-preview" type="button" class="secondary-button">🖨️ Imprimir</button>
+          <button id="btn-download-factura-preview" type="button" class="btn-primary px-4 py-2 rounded-xl font-black">📥 Descargar PDF</button>
+          <button id="btn-close-factura-preview" type="button" class="secondary-button">Cerrar</button>
+        </div>
+      </div>
+      <div id="factura-preview-render-area" class="overflow-y-auto flex-1 bg-slate-100 p-2 sm:p-5 rounded-2xl border border-slate-200"></div>
+    </div>
   </div>
 
   <!-- MODAL: CONFIGURACIÓN DEL CONSULTORIO -->

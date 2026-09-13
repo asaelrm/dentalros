@@ -684,6 +684,9 @@ class OdontoApp {
     document.getElementById('btn-reopen-factura')?.addEventListener('click', () => this.reopenFactura());
     document.getElementById('btn-download-factura')?.addEventListener('click', () => this.downloadFacturaPDF());
     document.getElementById('btn-close-factura-modal')?.addEventListener('click', () => this.closeModal('modal-factura'));
+    document.getElementById('btn-close-factura-preview')?.addEventListener('click', () => this.closeModal('modal-factura-preview'));
+    document.getElementById('btn-download-factura-preview')?.addEventListener('click', () => this.exportPreviewedFactura());
+    document.getElementById('btn-print-factura-preview')?.addEventListener('click', () => this.printPreviewedFactura());
 
     // 9. Pestañas del paciente
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -973,16 +976,43 @@ class OdontoApp {
       this.showToast('Guarda la factura antes de generar su PDF.', 'error');
       return;
     }
-    const button = document.getElementById('btn-download-factura');
+    try {
+      this.previewFacturaId = consultaId;
+      document.getElementById('factura-preview-render-area').innerHTML = window.pdfExporter.buildInvoiceHTML(
+        this.currentPaciente, consulta, this.config, window.authManager.user
+      );
+      this.openModal('modal-factura-preview');
+    } catch (error) {
+      console.error('Error al mostrar la factura:', error);
+      this.showToast('No se pudo mostrar la factura.', 'error');
+    }
+  }
+
+  getPreviewedFactura() {
+    return this.currentConsultas.find(item => item.id === Number(this.previewFacturaId));
+  }
+
+  async exportPreviewedFactura() {
+    const consulta = this.getPreviewedFactura();
+    if (!consulta?.factura) return;
+    const button = document.getElementById('btn-download-factura-preview');
     button.disabled = true;
     try {
-      await window.pdfExporter.downloadInvoicePDF(this.currentPaciente, consulta, this.config);
-      this.showToast('PDF de la factura generado correctamente.');
+      await window.pdfExporter.downloadInvoicePDF(this.currentPaciente, consulta, this.config, window.authManager.user);
+      this.showToast('PDF de la factura descargado correctamente.');
     } catch (error) {
       console.error('Error al generar la factura PDF:', error);
-      this.showToast('No se pudo generar el PDF de la factura.', 'error');
-    } finally {
-      button.disabled = false;
+      this.showToast('No se pudo descargar el PDF de la factura.', 'error');
+    } finally { button.disabled = false; }
+  }
+
+  printPreviewedFactura() {
+    const consulta = this.getPreviewedFactura();
+    if (!consulta?.factura) return;
+    try {
+      window.pdfExporter.printInvoice(this.currentPaciente, consulta, this.config, window.authManager.user);
+    } catch (error) {
+      this.showToast(error.message || 'No se pudo imprimir la factura.', 'error');
     }
   }
 
