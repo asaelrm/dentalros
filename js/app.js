@@ -76,7 +76,7 @@ class OdontoApp {
         if (element) element.hidden = !canEdit;
       });
 
-    ['btn-exportar-backup', 'label-importar-backup', 'btn-abrir-config']
+    ['btn-exportar-backup', 'btn-backup-sqlite', 'label-importar-backup', 'btn-abrir-config']
       .forEach(id => {
         const element = document.getElementById(id);
         if (element) element.hidden = !isAdmin;
@@ -876,6 +876,7 @@ class OdontoApp {
         this.showToast('Copia de seguridad descargada exitosamente.');
       });
     }
+    document.getElementById('btn-backup-sqlite')?.addEventListener('click', async () => { const button = document.getElementById('btn-backup-sqlite'); button.disabled = true; try { const result = await window.odontoDB.createSqliteBackup(); this.showToast(`Respaldo completo creado: ${result.filename}`); } catch (error) { this.showToast(error.message, 'error'); } finally { button.disabled = false; } });
 
     const inputImportar = document.getElementById('input-importar-backup');
     if (inputImportar) {

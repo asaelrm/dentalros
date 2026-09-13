@@ -63,6 +63,22 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function createSqliteBackup(db, backupDir, retention, logger = console) {
+  fs.mkdirSync(backupDir, { recursive: true });
+  const filename = `dentalros-${nowIso().replace(/[:.]/g, '-')}.sqlite`;
+  const destination = path.join(backupDir, filename);
+  db.exec(`VACUUM INTO '${destination.replaceAll("'", "''")}'`);
+  const files = fs.readdirSync(backupDir).filter(name => /^dentalros-.*\.sqlite$/.test(name)).sort().reverse();
+  for (const old of files.slice(retention)) fs.unlinkSync(path.join(backupDir, old));
+  logger.info?.(`Respaldo SQLite creado: ${filename}`);
+  return { filename, createdAt: nowIso(), size: fs.statSync(destination).size };
+}
+
+function listSqliteBackups(backupDir) {
+  if (!fs.existsSync(backupDir)) return [];
+  return fs.readdirSync(backupDir).filter(name => /^dentalros-.*\.sqlite$/.test(name)).map(filename => { const stat = fs.statSync(path.join(backupDir, filename)); return { filename, size: stat.size, createdAt: stat.mtime.toISOString() }; }).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}
+
 function applySecurityHeaders(res, isApi = false) {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -698,7 +714,7 @@ function isKnownProtectedPath(pathname) {
     pathname === '/api/auth/logout' ||
     pathname === '/api/auth/change-password' ||
     pathname === '/api/users' ||
-    pathname === '/api/insurers' ||
+    pathname === '/api/insurers' || pathname === '/api/backups' ||
     pathname === '/api/cash' || /^\/api\/cash\/(?:session|session\/close|payments\/\d+\/(?:void|reprint))$/.test(pathname) ||
     /^\/api\/consultas\/\d+\/charge$/.test(pathname) ||
     pathname === '/api/catalogo' || /^\/api\/catalogo\/\d+$/.test(pathname) || pathname === '/api/tarifarios' ||
@@ -1629,6 +1645,14 @@ async function handleApi(req, res, pathname, context) {
     });
   }
 
+  if (pathname === '/api/backups' && method === 'GET') {
+    requireAdmin(auth); return sendJson(res, 200, { enabled: Boolean(context.backupDir), backups: context.backupDir ? listSqliteBackups(context.backupDir) : [] });
+  }
+  if (pathname === '/api/backups' && method === 'POST') {
+    requireAdmin(auth); if (!context.backupDir) throw new HttpError(409, 'Los respaldos automáticos no están disponibles con una base temporal.');
+    const backup = createSqliteBackup(db, context.backupDir, context.backupRetention, context.logger); writeAudit(db, auth.user.id, 'sqlite_backup_create', 'backup', backup.filename); return sendJson(res, 201, backup);
+  }
+
   throw new HttpError(404, 'Endpoint no encontrado.');
 }
 
@@ -1705,7 +1729,12 @@ function createServer(options = {}) {
 
   if (dbPath !== ':memory:') fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = openDatabase(dbPath);
-  const context = { db, bodyLimit, sessionMaxAge, cookieSecure, mailer: options.mailer, loginAttempts: new Map() };
+  const backupDir = dbPath === ':memory:' ? null : (options.backupDir || process.env.BACKUP_DIR || path.join(path.dirname(dbPath), 'backups'));
+  const backupRetention = Math.max(1, Math.min(365, Number(options.backupRetention || process.env.BACKUP_RETENTION || 30)));
+  const backupIntervalHours = Math.max(1, Number(options.backupIntervalHours || process.env.BACKUP_INTERVAL_HOURS || 24));
+  const context = { db, bodyLimit, sessionMaxAge, cookieSecure, mailer: options.mailer, loginAttempts: new Map(), backupDir, backupRetention, logger };
+  let backupTimer = null;
+  if (backupDir) { const runBackup = () => { try { createSqliteBackup(db, backupDir, backupRetention, logger); } catch (error) { logger.error('No se pudo crear el respaldo automático:', error); } }; runBackup(); backupTimer = setInterval(runBackup, backupIntervalHours * 60 * 60 * 1000); backupTimer.unref(); }
 
   const server = http.createServer((req, res) => {
     let pathname;
@@ -1733,6 +1762,7 @@ function createServer(options = {}) {
 
   let databaseClosed = false;
   server.once('close', () => {
+    if (backupTimer) clearInterval(backupTimer);
     if (!databaseClosed) {
       databaseClosed = true;
       db.close();

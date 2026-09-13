@@ -10,6 +10,9 @@ services:
       HOST: 0.0.0.0
       PORT: "${PORT:-3000}"
       DB_PATH: /app/data/odontologia.sqlite
+      BACKUP_DIR: /app/data/backups
+      BACKUP_RETENTION: "${BACKUP_RETENTION:-30}"
+      BACKUP_INTERVAL_HOURS: "${BACKUP_INTERVAL_HOURS:-24}"
       COOKIE_SECURE: "${COOKIE_SECURE:-true}"
       PUBLIC_URL: "${PUBLIC_URL:-}"
       SMTP_HOST: "${SMTP_HOST:-}"

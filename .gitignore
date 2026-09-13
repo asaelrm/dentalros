@@ -11,6 +11,7 @@ data/odontologia.sqlite
 data/odontologia.sqlite-journal
 data/odontologia.sqlite-shm
 data/odontologia.sqlite-wal
+data/backups/
 
 # Dependencias y caché de desarrollo
 node_modules/
