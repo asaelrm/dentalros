@@ -134,6 +134,20 @@ function openDatabase(filename) {
       ) STRICT;
       CREATE INDEX IF NOT EXISTS idx_cash_payments_paid_at ON cash_payments(paid_at);
       CREATE INDEX IF NOT EXISTS idx_cash_payments_patient ON cash_payments(patient_id);
+      CREATE TABLE IF NOT EXISTS cash_payment_lines (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        cash_payment_id INTEGER NOT NULL REFERENCES cash_payments(id) ON DELETE RESTRICT,
+        method TEXT NOT NULL CHECK(method IN ('efectivo','tarjeta','transferencia','cheque','credito','otro')),
+        amount_centavos INTEGER NOT NULL CHECK(amount_centavos >= 0),
+        card_brand TEXT NOT NULL DEFAULT '', card_type TEXT NOT NULL DEFAULT '', last_four TEXT NOT NULL DEFAULT '',
+        authorization_number TEXT NOT NULL DEFAULT '', reference_number TEXT NOT NULL DEFAULT '', processor TEXT NOT NULL DEFAULT ''
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS idx_cash_payment_lines_receipt ON cash_payment_lines(cash_payment_id);
+      CREATE TABLE IF NOT EXISTS cash_sessions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, cashier_user_id INTEGER NOT NULL REFERENCES users(id), cashier_name TEXT NOT NULL, cashier_username TEXT NOT NULL,
+        register_number TEXT NOT NULL DEFAULT 'Caja 1', opening_cash_centavos INTEGER NOT NULL, opened_at TEXT NOT NULL,
+        closed_at TEXT, expected_cash_centavos INTEGER, counted_cash_centavos INTEGER, difference_centavos INTEGER, status TEXT NOT NULL CHECK(status IN ('abierta','cerrada'))
+      ) STRICT;
       CREATE TABLE IF NOT EXISTS clinical_attachments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         patient_id INTEGER NOT NULL REFERENCES pacientes(id) ON DELETE CASCADE,
@@ -166,8 +180,15 @@ function openDatabase(filename) {
     if (!cashColumns.has('patient_paid_centavos')) db.exec('ALTER TABLE cash_payments ADD COLUMN patient_paid_centavos INTEGER NOT NULL DEFAULT 0');
     if (!cashColumns.has('amount_received_centavos')) db.exec('ALTER TABLE cash_payments ADD COLUMN amount_received_centavos INTEGER NOT NULL DEFAULT 0');
     if (!cashColumns.has('change_centavos')) db.exec('ALTER TABLE cash_payments ADD COLUMN change_centavos INTEGER NOT NULL DEFAULT 0');
+    if (!cashColumns.has('cash_session_id')) db.exec('ALTER TABLE cash_payments ADD COLUMN cash_session_id INTEGER REFERENCES cash_sessions(id)');
+    if (!cashColumns.has('status')) db.exec("ALTER TABLE cash_payments ADD COLUMN status TEXT NOT NULL DEFAULT 'pagado'");
+    if (!cashColumns.has('reprint_count')) db.exec('ALTER TABLE cash_payments ADD COLUMN reprint_count INTEGER NOT NULL DEFAULT 0');
     db.exec('UPDATE cash_payments SET patient_paid_centavos = amount_centavos WHERE patient_paid_centavos = 0 AND insurance_covered_centavos = 0');
     db.exec('UPDATE cash_payments SET amount_received_centavos = patient_paid_centavos WHERE amount_received_centavos = 0');
+    db.exec(`INSERT INTO cash_payment_lines (cash_payment_id, method, amount_centavos, reference_number)
+      SELECT id, CASE WHEN payment_method IN ('efectivo','tarjeta','transferencia','otro') THEN payment_method ELSE 'otro' END,
+      patient_paid_centavos, COALESCE(reference,'') FROM cash_payments cp
+      WHERE NOT EXISTS (SELECT 1 FROM cash_payment_lines pl WHERE pl.cash_payment_id = cp.id)`);
     const insurers = [
       ['SeNaSa','SENASA'],['Primera ARS','PRIMERA'],['MAPFRE Salud ARS','MAPFRE'],['ARS Universal','UNIVERSAL'],
       ['ARS Futuro','FUTURO'],['ARS SEMMA','SEMMA'],['ARS Renacer','RENACER'],['ARS Monumental','MONUMENTAL'],
