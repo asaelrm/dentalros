@@ -70,11 +70,17 @@ class PDFExporter {
           </div>
         </div>
       </section>
-      <section style="margin-bottom:20px;font-size:12px;"><strong style="color:#9f1239;">DIAGNÓSTICO</strong><p style="white-space:pre-wrap;margin:6px 0;">${escape(invoice.diagnostico)}</p></section>
-      <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;font-size:11px;">
-        <thead><tr style="background:#881337;color:#fff;"><th style="padding:9px;width:7%;">#</th><th style="padding:9px;text-align:left;">Procedimiento</th><th style="padding:9px;width:12%;">Cantidad</th><th style="padding:9px;text-align:right;width:17%;">Precio</th><th style="padding:9px;text-align:right;width:17%;">Subtotal</th></tr></thead>
-        <tbody>${rows || '<tr><td colspan="5" style="padding:18px;text-align:center;color:#64748b;">Sin procedimientos registrados</td></tr>'}</tbody>
-      </table>
+      <section style="overflow:hidden;margin-bottom:20px;border:1px solid #fecdd3;border-radius:12px;background:linear-gradient(145deg,#fff 0%,#fff7f8 100%);box-shadow:0 5px 16px rgba(136,19,55,.06);font-size:12px;">
+        <div style="padding:9px 14px;background:#9f1239;color:#fff;font-family:Georgia,'Times New Roman',serif;font-size:13px;font-weight:700;letter-spacing:.5px;">Diagnóstico</div>
+        <p style="white-space:pre-wrap;margin:0;padding:15px 16px;color:#334155;line-height:1.65;">${escape(invoice.diagnostico)}</p>
+      </section>
+      <section style="overflow:hidden;border:1px solid #cbd5e1;border-radius:12px;box-shadow:0 5px 16px rgba(15,23,42,.06);">
+        <div style="padding:9px 14px;background:#334155;color:#fff;font-family:Georgia,'Times New Roman',serif;font-size:13px;font-weight:700;letter-spacing:.5px;">Procedimientos realizados</div>
+        <table style="width:100%;border-collapse:collapse;font-size:11px;">
+          <thead><tr style="background:#f1f5f9;color:#334155;text-transform:uppercase;letter-spacing:.35px;"><th style="padding:10px;width:7%;">#</th><th style="padding:10px;text-align:left;">Procedimiento</th><th style="padding:10px;width:12%;">Cantidad</th><th style="padding:10px;text-align:right;width:17%;">Precio</th><th style="padding:10px;text-align:right;width:17%;">Subtotal</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="5" style="padding:18px;text-align:center;color:#64748b;">Sin procedimientos registrados</td></tr>'}</tbody>
+        </table>
+      </section>
       <div style="display:flex;justify-content:flex-end;margin-top:18px;"><div style="min-width:260px;background:#fff1f2;border:1px solid #fecdd3;padding:14px 18px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;"><strong style="font-size:14px;color:#881337;">TOTAL</strong><strong style="font-size:24px;color:#047857;">$${Number(invoice.total || 0).toFixed(2)}</strong></div></div>
       <section style="display:flex;justify-content:space-between;gap:40px;margin-top:72px;text-align:center;font-size:11px;page-break-inside:avoid;">
         <div style="width:48%;border-top:1px solid #475569;padding-top:8px;"><strong>${escape(paciente.nombre)} ${escape(paciente.apellido)}</strong><br><span>Firma del paciente o responsable</span><br><small>Cédula/DNI: ${escape(paciente.cedula || '________________')}</small></div>
@@ -127,6 +133,7 @@ class PDFExporter {
     historia = sanitizeRecord(historia);
     consultas = (consultas || []).map(sanitizeRecord);
     config = sanitizeRecord(config);
+    const sectionTitleStyle = "background:linear-gradient(90deg,#881337 0%,#be123c 100%);padding:7px 11px;font-family:Georgia,'Times New Roman',serif;font-size:12px;font-weight:700;color:#fff;letter-spacing:.45px;border-radius:7px;margin-bottom:9px;";
 
     const fechaHoy = new Date().toLocaleDateString('es-ES', {
       year: 'numeric',
@@ -255,7 +262,7 @@ class PDFExporter {
 
         <!-- 1. Datos Generales del Paciente -->
         <div style="margin-bottom: 16px;">
-          <div style="background: #f1f5f9; padding: 4px 8px; font-size: 11px; font-weight: 800; color: #334155; text-transform: uppercase; letter-spacing: 0.5px; border-radius: 4px; margin-bottom: 8px;">
+          <div style="${sectionTitleStyle}">
             1. Datos de Filiación del Paciente
           </div>
           <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
@@ -294,7 +301,7 @@ class PDFExporter {
 
         <!-- 2. Anamnesis y Antecedentes Médicos -->
         <div style="margin-bottom: 16px;">
-          <div style="background: #f1f5f9; padding: 4px 8px; font-size: 11px; font-weight: 800; color: #334155; text-transform: uppercase; letter-spacing: 0.5px; border-radius: 4px; margin-bottom: 8px;">
+          <div style="${sectionTitleStyle}">
             2. Anamnesis y Estado de Salud General
           </div>
           <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
@@ -319,16 +326,16 @@ class PDFExporter {
 
         <!-- 3. Diagnóstico Odontológico y Plan de Tratamiento -->
         <div style="margin-bottom: 16px;">
-          <div style="background: #f1f5f9; padding: 4px 8px; font-size: 11px; font-weight: 800; color: #334155; text-transform: uppercase; letter-spacing: 0.5px; border-radius: 4px; margin-bottom: 8px;">
+          <div style="${sectionTitleStyle}">
             3. Diagnóstico Clínico y Plan Terapéutico
           </div>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 11px;">
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 8px 10px; border-radius: 4px;">
-              <strong style="color: #0369a1; display: block; margin-bottom: 4px;">DIAGNÓSTICO ODONTOLÓGICO:</strong>
+            <div style="background:linear-gradient(145deg,#fff 0%,#fff1f2 100%);border:1px solid #fecdd3;padding:11px 12px;border-radius:9px;box-shadow:0 3px 10px rgba(136,19,55,.05);">
+              <strong style="font-family:Georgia,'Times New Roman',serif;color:#9f1239;display:block;margin-bottom:5px;font-size:11px;">Diagnóstico odontológico</strong>
               <div style="color: #0f172a; white-space: pre-line;">${diagnosticoGeneral}</div>
             </div>
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 8px 10px; border-radius: 4px;">
-              <strong style="color: #047857; display: block; margin-bottom: 4px;">PLAN DE TRATAMIENTO PROPUESTO:</strong>
+            <div style="background:linear-gradient(145deg,#fff 0%,#f8fafc 100%);border:1px solid #cbd5e1;padding:11px 12px;border-radius:9px;box-shadow:0 3px 10px rgba(15,23,42,.05);">
+              <strong style="font-family:Georgia,'Times New Roman',serif;color:#334155;display:block;margin-bottom:5px;font-size:11px;">Plan de tratamiento propuesto</strong>
               <div style="color: #0f172a; white-space: pre-line;">${planTratamiento}</div>
             </div>
           </div>
@@ -336,7 +343,7 @@ class PDFExporter {
 
         <!-- 4. Resumen del Odontograma -->
         <div style="margin-bottom: 16px;">
-          <div style="background: #f1f5f9; padding: 4px 8px; font-size: 11px; font-weight: 800; color: #334155; text-transform: uppercase; letter-spacing: 0.5px; border-radius: 4px; margin-bottom: 8px;">
+          <div style="${sectionTitleStyle}">
             4. Hallazgos del Odontograma
           </div>
           <div style="font-size: 11px; color: #334155;">
@@ -350,12 +357,12 @@ class PDFExporter {
 
         <!-- 5. Récord Cronológico de Consultas y Evolución -->
         <div style="margin-bottom: 24px;">
-          <div style="background: #f1f5f9; padding: 4px 8px; font-size: 11px; font-weight: 800; color: #334155; text-transform: uppercase; letter-spacing: 0.5px; border-radius: 4px; margin-bottom: 8px;">
+          <div style="${sectionTitleStyle}">
             5. Récord Cronológico de Evolución y Procedimientos Realizados
           </div>
           <table style="width: 100%; border-collapse: collapse; border: 1px solid #e2e8f0;">
             <thead>
-              <tr style="background: #f8fafc; border-bottom: 2px solid #cbd5e1; text-align: left; font-size: 10px; text-transform: uppercase; color: #475569;">
+              <tr style="background:#334155;border-bottom:2px solid #1e293b;text-align:left;font-size:10px;text-transform:uppercase;color:#fff;letter-spacing:.3px;">
                 <th style="padding: 6px;">Fecha</th>
                 <th style="padding: 6px;">Motivo</th>
                 <th style="padding: 6px;">Diagnóstico</th>
