@@ -1026,7 +1026,7 @@ async function handleApi(req, res, pathname, context) {
     const from = requestUrl.searchParams.get('from') || today;
     const to = requestUrl.searchParams.get('to') || from;
     if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw new HttpError(400, 'El rango de fechas no es válido.');
-    const payments = db.prepare(`SELECT cp.*, json_extract(p.data, '$.nombre') AS patient_name,
+    let payments = db.prepare(`SELECT cp.*, json_extract(p.data, '$.nombre') AS patient_name,
       json_extract(p.data, '$.apellido') AS patient_lastname FROM cash_payments cp
       JOIN pacientes p ON p.id = cp.patient_id WHERE substr(cp.paid_at, 1, 10) BETWEEN ? AND ?
       ORDER BY cp.paid_at DESC, cp.id DESC`).all(from, to).map(row => ({
@@ -1034,8 +1034,11 @@ async function handleApi(req, res, pathname, context) {
         patientName: `${row.patient_name || ''} ${row.patient_lastname || ''}`.trim(), amount: Number(row.amount_centavos) / 100,
         paymentMethod: row.payment_method, reference: row.reference || '', receivedBy: row.received_by == null ? null : Number(row.received_by), receivedByName: row.received_by_name, paidAt: row.paid_at,
         coveragePercent: Number(row.coverage_percent || 0), insuranceCovered: Number(row.insurance_covered_centavos || 0) / 100, patientPaid: Number(row.patient_paid_centavos ?? row.amount_centavos) / 100,
-        amountReceived: Number(row.amount_received_centavos ?? row.patient_paid_centavos) / 100, change: Number(row.change_centavos || 0) / 100
-      })).map(payment => ({ ...payment, cashierUsername: payment.receivedBy ? (db.prepare('SELECT username FROM users WHERE id = ?').get(payment.receivedBy)?.username || '') : '', voucherNumber: `REC-${String(payment.id).padStart(8, '0')}`, invoiceNumber: `FAC-${String(payment.consultationId).padStart(8, '0')}`, lines: db.prepare('SELECT method, amount_centavos, card_brand, card_type, last_four, authorization_number, reference_number, processor FROM cash_payment_lines WHERE cash_payment_id = ? ORDER BY id').all(payment.id).map(line => ({ method: line.method, amount: Number(line.amount_centavos) / 100, cardBrand: line.card_brand, cardType: line.card_type, lastFour: line.last_four, authorizationNumber: line.authorization_number, referenceNumber: line.reference_number, processor: line.processor })) }));
+        amountReceived: Number(row.amount_received_centavos ?? row.patient_paid_centavos) / 100, change: Number(row.change_centavos || 0) / 100,
+        status: row.status || 'pagado', sessionId: row.cash_session_id == null ? null : Number(row.cash_session_id), reprintCount: Number(row.reprint_count || 0)
+      })).map(payment => { const consultation = parseData(db.prepare('SELECT data FROM consultas WHERE id = ?').get(payment.consultationId)?.data || '{}'); return ({ ...payment, cashierUsername: payment.receivedBy ? (db.prepare('SELECT username FROM users WHERE id = ?').get(payment.receivedBy)?.username || '') : '', voucherNumber: `REC-${String(payment.id).padStart(8, '0')}`, invoiceNumber: `FAC-${String(payment.consultationId).padStart(8, '0')}`, services: consultation.factura?.procedimientos || [], lines: db.prepare('SELECT method, amount_centavos, card_brand, card_type, last_four, authorization_number, reference_number, processor FROM cash_payment_lines WHERE cash_payment_id = ? ORDER BY id').all(payment.id).map(line => ({ method: line.method, amount: Number(line.amount_centavos) / 100, cardBrand: line.card_brand, cardType: line.card_type, lastFour: line.last_four, authorizationNumber: line.authorization_number, referenceNumber: line.reference_number, processor: line.processor })) }); });
+    const cashierId = requestUrl.searchParams.get('cashierId'); const paymentMethodFilter = requestUrl.searchParams.get('method'); const cardBrand = requestUrl.searchParams.get('cardBrand'); const registerNumber = requestUrl.searchParams.get('register'); const invoiceFilter = requestUrl.searchParams.get('invoice'); const patientFilter = requestUrl.searchParams.get('patient');
+    payments = payments.filter(payment => (!cashierId || payment.receivedBy === Number(cashierId)) && (!paymentMethodFilter || payment.lines.some(line => line.method === paymentMethodFilter)) && (!cardBrand || payment.lines.some(line => String(line.cardBrand || '').toLowerCase().includes(cardBrand.toLowerCase()))) && (!registerNumber || String(db.prepare('SELECT register_number FROM cash_sessions WHERE id = ?').get(payment.sessionId)?.register_number || '').toLowerCase().includes(registerNumber.toLowerCase())) && (!invoiceFilter || payment.invoiceNumber.toLowerCase().includes(invoiceFilter.toLowerCase())) && (!patientFilter || payment.patientName.toLowerCase().includes(patientFilter.toLowerCase())));
     const pendingInvoices = db.prepare(`SELECT c.id, c.paciente_id, c.data, p.data AS patient_data FROM consultas c
       JOIN pacientes p ON p.id = c.paciente_id LEFT JOIN cash_payments cp ON cp.consultation_id = c.id
       WHERE json_extract(c.data, '$.factura.estado') = 'cerrada' AND cp.id IS NULL
@@ -1044,14 +1047,40 @@ async function handleApi(req, res, pathname, context) {
         const consultation = parseData(row.data); const patient = parseData(row.patient_data);
         return { consultationId: Number(row.id), patientId: Number(row.paciente_id), patientName: `${patient.nombre || ''} ${patient.apellido || ''}`.trim(), date: consultation.fecha || '', diagnosis: consultation.factura.diagnostico, total: consultation.factura.total };
       });
-    const byMethod = {};
-    for (const payment of payments) for (const line of payment.lines) { const key = line.method === 'tarjeta' ? `Tarjeta ${line.cardBrand || 'Otra'} ${line.cardType || ''}`.trim() : line.method; byMethod[key] = Number(((byMethod[key] || 0) + line.amount).toFixed(2)); }
-    return sendJson(res, 200, { from, to, payments, pendingInvoices, total: Number(payments.reduce((sum, item) => sum + item.patientPaid, 0).toFixed(2)), insuranceTotal: Number(payments.reduce((sum, item) => sum + item.insuranceCovered, 0).toFixed(2)), byMethod });
+    const confirmed = payments.filter(payment => payment.status === 'pagado'); const byMethod = {};
+    for (const payment of confirmed) for (const line of payment.lines) { const key = line.method === 'tarjeta' ? `Tarjeta ${line.cardBrand || 'Otra'} ${line.cardType || ''}`.trim() : line.method; byMethod[key] = Number(((byMethod[key] || 0) + line.amount).toFixed(2)); }
+    const currentSessionRow = db.prepare("SELECT * FROM cash_sessions WHERE cashier_user_id = ? AND status = 'abierta' ORDER BY id DESC LIMIT 1").get(auth.user.id);
+    const mapSession = row => row && ({ id: Number(row.id), cashierName: row.cashier_name, cashierUsername: row.cashier_username, registerNumber: row.register_number, openingCash: Number(row.opening_cash_centavos) / 100, openedAt: row.opened_at, closedAt: row.closed_at, expectedCash: row.expected_cash_centavos == null ? null : Number(row.expected_cash_centavos) / 100, countedCash: row.counted_cash_centavos == null ? null : Number(row.counted_cash_centavos) / 100, difference: row.difference_centavos == null ? null : Number(row.difference_centavos) / 100, status: row.status });
+    const sessions = db.prepare('SELECT * FROM cash_sessions WHERE substr(opened_at,1,10) BETWEEN ? AND ? ORDER BY id DESC').all(from, to).map(mapSession);
+    return sendJson(res, 200, { from, to, payments, pendingInvoices, currentSession: currentSessionRow ? mapSession(currentSessionRow) : null, sessions, total: Number(confirmed.reduce((sum, item) => sum + item.patientPaid, 0).toFixed(2)), insuranceTotal: Number(confirmed.reduce((sum, item) => sum + item.insuranceCovered, 0).toFixed(2)), voidTotal: Number(payments.filter(item => item.status === 'anulado').reduce((sum,item) => sum + item.patientPaid, 0).toFixed(2)), byMethod });
+  }
+
+  if (pathname === '/api/cash/session' && method === 'POST') {
+    requirePermission(auth, 'cash.write'); const body = requireObject(await readJsonBody(req, bodyLimit));
+    if (db.prepare("SELECT 1 FROM cash_sessions WHERE cashier_user_id = ? AND status = 'abierta'").get(auth.user.id)) throw new HttpError(409, 'Ya tienes una caja abierta.');
+    const opening = billing.cents(Number(body.openingCash || 0)); const register = String(body.registerNumber || 'Caja 1').trim().slice(0, 60);
+    const openedAt = nowIso(); const id = Number(db.prepare("INSERT INTO cash_sessions (cashier_user_id,cashier_name,cashier_username,register_number,opening_cash_centavos,opened_at,status) VALUES (?,?,?,?,?,?,'abierta')").run(auth.user.id,auth.user.displayName,auth.user.username,register,opening,openedAt).lastInsertRowid);
+    writeAudit(db, auth.user.id, 'cash_session_open', 'cash_session', id, { opening, register }); return sendJson(res, 201, { id, openingCash: opening / 100, registerNumber: register, openedAt, status: 'abierta' });
+  }
+
+  if (pathname === '/api/cash/session/close' && method === 'POST') {
+    requirePermission(auth, 'cash.write'); const session = db.prepare("SELECT * FROM cash_sessions WHERE cashier_user_id = ? AND status = 'abierta' ORDER BY id DESC LIMIT 1").get(auth.user.id); if (!session) throw new HttpError(409, 'No tienes una caja abierta.');
+    const body = requireObject(await readJsonBody(req, bodyLimit)); const counted = billing.cents(Number(body.countedCash));
+    const cash = db.prepare("SELECT COALESCE(SUM(pl.amount_centavos),0) total FROM cash_payment_lines pl JOIN cash_payments cp ON cp.id=pl.cash_payment_id WHERE cp.cash_session_id=? AND cp.status='pagado' AND pl.method='efectivo'").get(session.id).total;
+    const change = db.prepare("SELECT COALESCE(SUM(change_centavos),0) total FROM cash_payments WHERE cash_session_id=? AND status='pagado'").get(session.id).total; const expected = Number(session.opening_cash_centavos) + Number(cash) - Number(change); const difference = counted - expected; const closedAt = nowIso();
+    db.prepare("UPDATE cash_sessions SET closed_at=?,expected_cash_centavos=?,counted_cash_centavos=?,difference_centavos=?,status='cerrada' WHERE id=?").run(closedAt,expected,counted,difference,session.id); writeAudit(db,auth.user.id,'cash_session_close','cash_session',Number(session.id),{expected,counted,difference}); return sendJson(res,200,{success:true,expectedCash:expected/100,countedCash:counted/100,difference:difference/100,closedAt});
+  }
+
+  const cashActionMatch = pathname.match(/^\/api\/cash\/payments\/(\d+)\/(void|reprint)$/);
+  if (cashActionMatch && method === 'POST') { const paymentId = positiveId(cashActionMatch[1],'ID de cobro'); const payment = db.prepare('SELECT * FROM cash_payments WHERE id=?').get(paymentId); if (!payment) throw new HttpError(404,'Cobro no encontrado.');
+    if (cashActionMatch[2] === 'reprint') { requirePermission(auth,'cash.read'); db.prepare('UPDATE cash_payments SET reprint_count=reprint_count+1 WHERE id=?').run(paymentId); writeAudit(db,auth.user.id,'cash_voucher_reprint','cash_payment',paymentId); return sendJson(res,200,{success:true}); }
+    requirePermission(auth,'invoice.reopen'); if (payment.status === 'anulado') throw new HttpError(409,'El cobro ya está anulado.'); db.prepare("UPDATE cash_payments SET status='anulado' WHERE id=?").run(paymentId); writeAudit(db,auth.user.id,'cash_payment_void','cash_payment',paymentId); return sendJson(res,200,{success:true});
   }
 
   const chargeMatch = pathname.match(/^\/api\/consultas\/(\d+)\/charge$/);
   if (chargeMatch && method === 'POST') {
     requirePermission(auth, 'cash.write');
+    const session = db.prepare("SELECT * FROM cash_sessions WHERE cashier_user_id = ? AND status = 'abierta' ORDER BY id DESC LIMIT 1").get(auth.user.id); if (!session) throw new HttpError(409, 'Debes abrir tu caja antes de registrar cobros.');
     const consultationId = positiveId(chargeMatch[1], 'ID de consulta');
     const row = db.prepare('SELECT id, paciente_id, data FROM consultas WHERE id = ?').get(consultationId);
     if (!row) throw new HttpError(404, 'Consulta no encontrada.');
@@ -1086,8 +1115,8 @@ async function handleApi(req, res, pathname, context) {
     let id;
     try {
       id = runTransaction(db, () => {
-        const result = db.prepare(`INSERT INTO cash_payments (consultation_id, patient_id, amount_centavos, coverage_percent, insurance_covered_centavos, patient_paid_centavos, amount_received_centavos, change_centavos, payment_method, reference, received_by, received_by_name, paid_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(consultationId, Number(row.paciente_id), amountCentavos, coveragePercent, insuranceCoveredCentavos, patientPaidCentavos, amountReceivedCentavos, changeCentavos, paymentMethod, reference || null, auth.user.id, auth.user.displayName, paidAt);
+        const result = db.prepare(`INSERT INTO cash_payments (consultation_id, patient_id, amount_centavos, coverage_percent, insurance_covered_centavos, patient_paid_centavos, amount_received_centavos, change_centavos, payment_method, reference, received_by, received_by_name, paid_at, cash_session_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(consultationId, Number(row.paciente_id), amountCentavos, coveragePercent, insuranceCoveredCentavos, patientPaidCentavos, amountReceivedCentavos, changeCentavos, paymentMethod, reference || null, auth.user.id, auth.user.displayName, paidAt, Number(session.id));
         const receiptId = Number(result.lastInsertRowid);
         const insertLine = db.prepare('INSERT INTO cash_payment_lines (cash_payment_id, method, amount_centavos, card_brand, card_type, last_four, authorization_number, reference_number, processor) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
         for (const line of paymentLines) insertLine.run(receiptId, line.method, line.amountCentavos, line.cardBrand, line.cardType, line.lastFour, line.authorizationNumber, line.referenceNumber, line.processor);
@@ -1098,7 +1127,7 @@ async function handleApi(req, res, pathname, context) {
       if (String(error.message).includes('UNIQUE')) throw new HttpError(409, 'Esta factura ya fue cobrada.');
       throw error;
     }
-    return sendJson(res, 201, { id, voucherNumber: `REC-${String(id).padStart(8, '0')}`, consultationId, amount: amountCentavos / 100, coveragePercent, insuranceCovered: insuranceCoveredCentavos / 100, patientPaid: patientPaidCentavos / 100, amountReceived: amountReceivedCentavos / 100, change: changeCentavos / 100, paymentMethod, payments: paymentLines.map(line => ({ method: line.method, amount: line.amountCentavos / 100, cardBrand: line.cardBrand, cardType: line.cardType, lastFour: line.lastFour, authorizationNumber: line.authorizationNumber, referenceNumber: line.referenceNumber, processor: line.processor })), reference, receivedByName: auth.user.displayName, cashierUsername: auth.user.username, paidAt });
+    return sendJson(res, 201, { id, voucherNumber: `REC-${String(id).padStart(8, '0')}`, consultationId, amount: amountCentavos / 100, coveragePercent, insuranceCovered: insuranceCoveredCentavos / 100, patientPaid: patientPaidCentavos / 100, amountReceived: amountReceivedCentavos / 100, change: changeCentavos / 100, paymentMethod, payments: paymentLines.map(line => ({ method: line.method, amount: line.amountCentavos / 100, cardBrand: line.cardBrand, cardType: line.cardType, lastFour: line.lastFour, authorizationNumber: line.authorizationNumber, referenceNumber: line.referenceNumber, processor: line.processor })), services: consultation.factura.procedimientos || [], reference, receivedByName: auth.user.displayName, cashierUsername: auth.user.username, paidAt });
   }
 
   if (pathname === '/api/users' && method === 'GET') {

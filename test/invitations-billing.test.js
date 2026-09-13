@@ -173,6 +173,8 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del cat√
   assert.equal((await f.request('/api/catalogo', 'GET', undefined, sessions.doctor)).data.length, 1);
   assert.equal((await f.request('/api/cash', 'GET', undefined, sessions.auxiliar)).status, 403);
   await f.request(`/api/pacientes/${patientId}/historia`, 'PUT', { motivoPrincipal: 'Historia generada' }, sessions.doctor);
+  const opened = await f.request('/api/cash/session', 'POST', { openingCash: 100, registerNumber: 'Caja principal' }, sessions.secretaria);
+  assert.equal(opened.status, 201);
   const charge = await f.request(`/api/consultas/${visit.data.id}/charge`, 'POST', { payments: [{ method: 'efectivo', amount: 20 }, { method: 'tarjeta', amount: 30, cardBrand: 'Visa', cardType: 'Cr√©dito', lastFour: '1234', authorizationNumber: '458721' }], reference: 'APROB-1', coveragePercent: 25, amountReceived: 50 }, sessions.secretaria);
   assert.equal(charge.status, 201);
   assert.equal(charge.data.amount, 60);
@@ -188,6 +190,17 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del cat√
   const cash = await f.request(`/api/cash?from=${today}&to=${today}`, 'GET', undefined, f.admin);
   assert.equal(cash.data.total, 45);
   assert.equal(cash.data.insuranceTotal, 15);
+  assert.equal(cash.data.currentSession, null);
+  assert.equal(cash.data.payments[0].services.length, 1);
+  assert.equal((await f.request(`/api/cash/payments/${charge.data.id}/reprint`, 'POST', {}, sessions.secretaria)).status, 200);
+  const closed = await f.request('/api/cash/session/close', 'POST', { countedCash: 115 }, sessions.secretaria);
+  assert.equal(closed.status, 200);
+  assert.equal(closed.data.expectedCash, 115);
+  assert.equal(closed.data.difference, 0);
+  assert.equal((await f.request(`/api/cash/payments/${charge.data.id}/void`, 'POST', {}, f.admin)).status, 200);
+  const afterVoid = await f.request(`/api/cash?from=${today}&to=${today}`, 'GET', undefined, f.admin);
+  assert.equal(afterVoid.data.total, 0);
+  assert.equal(afterVoid.data.voidTotal, 45);
   assert.equal(cash.data.payments[0].reference, 'APROB-1');
   assert.equal(cash.data.pendingInvoices.length, 0);
   const financialBackup = (await f.request('/api/backup', 'GET', undefined, f.admin)).data;
