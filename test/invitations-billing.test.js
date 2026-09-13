@@ -27,7 +27,17 @@ async function fixture(t) {
 
 test('Invitaciones: privacidad, expiración, uso único, reenvío y errores SMTP', async t => {
   const f = await fixture(t);
-  assert.equal((await f.request('/api/users', 'POST', { username: 'inseguro', displayName: 'No', role: 'doctor', password: 'NoDebePermitirse123!' }, f.admin)).status, 400);
+  const directUser = await f.request('/api/users', 'POST', { username: 'directo', displayName: 'Usuario directo', role: 'doctor', password: '123456' }, f.admin);
+  assert.equal(directUser.status, 201);
+  assert.equal(directUser.data.mustChangePassword, true);
+  const directLogin = await f.request('/api/auth/login', 'POST', { username: 'directo', password: '123456' });
+  assert.equal(directLogin.status, 200);
+  assert.equal(directLogin.data.user.mustChangePassword, true);
+  const directReset = await f.request(`/api/users/${directUser.data.id}/reset-password`, 'POST', { password: '654321' }, f.admin);
+  assert.equal(directReset.status, 200);
+  assert.equal(directReset.data.mustChangePassword, true);
+  assert.equal((await f.request('/api/auth/me', 'GET', undefined, directLogin.cookie)).status, 401);
+  assert.equal((await f.request('/api/auth/login', 'POST', { username: 'directo', password: '654321' })).status, 200);
   const user = await f.invite('doctor');
   assert.equal(user.status, 201);
   assert.equal(user.data.invitationPending, true);

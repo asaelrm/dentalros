@@ -52,7 +52,7 @@ El administrador asigna el perfil desde `Menú de usuario > Administrar usuarios
 
 El administrador indica nombre, usuario, perfil y correo. DentalRos envía un enlace aleatorio de un solo uso que vence en 24 horas. La persona crea su propia contraseña en `activar.html`; la contraseña nunca se envía por correo ni se muestra al administrador. Reenviar una invitación invalida el enlace anterior y, para cuentas existentes, cierra sus sesiones activas al aceptar la nueva contraseña.
 
-El envío utiliza SMTP con TLS mediante Nodemailer. Completa estas variables privadas en `.env`:
+El sistema permite que el administrador defina una contraseña temporal al crear o restablecer una cuenta. El usuario deberá cambiarla durante su primer inicio de sesión. El correo SMTP queda disponible como mecanismo opcional para instalaciones que prefieran invitaciones por email. Si deseas usarlo, completa estas variables privadas en `.env`:
 
 ```dotenv
 PUBLIC_URL=https://direccion-publica-del-sistema.example

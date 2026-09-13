@@ -872,22 +872,21 @@ async function handleApi(req, res, pathname, context) {
   if (pathname === '/api/users' && method === 'POST') {
     requireUserManager(auth);
     const body = requireObject(await readJsonBody(req, bodyLimit));
-    if (Object.hasOwn(body, 'password')) throw new HttpError(400, 'La contraseña la establece el destinatario desde su correo.');
     const username = normalizeUsername(body.username);
     const displayName = validateDisplayName(body.displayName);
     const role = validateRole(body.role);
     canManageTarget(auth, { role });
-    const email = validateEmail(body.email);
-    const mailer = invitationMailer(context);
-    if (db.prepare('SELECT 1 FROM users WHERE username = ? OR email = ?').get(username, email)) throw new HttpError(409, 'El usuario o correo ya está en uso.');
-    const record = await createPasswordRecord(randomBytes(48).toString('base64url'));
+    const email = body.email ? validateEmail(body.email) : null;
+    const hasTemporaryPassword = Object.hasOwn(body, 'password');
+    const record = await createPasswordRecord(hasTemporaryPassword ? validatePassword(body.password) : randomBytes(48).toString('base64url'));
+    if (db.prepare('SELECT 1 FROM users WHERE username = ? OR (? IS NOT NULL AND email = ?)').get(username, email, email)) throw new HttpError(409, 'El usuario o correo ya está en uso.');
     let id;
     try {
       id = runTransaction(db, () => {
         const result = db.prepare(`INSERT INTO users
           (username, display_name, role, professional_role, email, password_hash, password_salt, active, must_change_password, invitation_pending, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, 1, ?, ?)`)
-          .run(username, displayName, permissions.baseRole(role), role, email, record.hash, record.salt, nowIso(), nowIso());
+          VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`)
+          .run(username, displayName, permissions.baseRole(role), role, email, record.hash, record.salt, hasTemporaryPassword ? 1 : 0, hasTemporaryPassword ? 0 : 1, nowIso(), nowIso());
         writeAudit(db, auth.user.id, 'user_create', 'user', Number(result.lastInsertRowid), { username, role });
         return Number(result.lastInsertRowid);
       });
@@ -895,7 +894,8 @@ async function handleApi(req, res, pathname, context) {
       if (String(error.message).includes('UNIQUE')) throw new HttpError(409, 'El usuario o correo ya está en uso.');
       throw error;
     }
-    const delivery = await deliverInvitation(db, id, auth.user.id, mailer);
+    if (hasTemporaryPassword) return sendJson(res, 201, publicUser(getUserRow(db, id)));
+    const delivery = await deliverInvitation(db, id, auth.user.id, invitationMailer(context));
     return sendJson(res, 201, { ...publicUser(getUserRow(db, id)), ...delivery });
   }
 
@@ -906,9 +906,19 @@ async function handleApi(req, res, pathname, context) {
     const target = getUserRow(db, userId);
     if (!target) throw new HttpError(404, 'Usuario no encontrado.');
     canManageTarget(auth, publicUser(target));
-    if (!target.active) throw new HttpError(409, 'Activa la cuenta antes de enviar un enlace.');
+    if (!target.active) throw new HttpError(409, 'Activa la cuenta antes de restablecer su contraseña.');
     const body = requireObject(await readJsonBody(req, bodyLimit));
-    if (Object.hasOwn(body, 'password')) throw new HttpError(400, 'La contraseña la establece el destinatario desde su correo.');
+    if (Object.hasOwn(body, 'password')) {
+      const record = await createPasswordRecord(validatePassword(body.password));
+      runTransaction(db, () => {
+        db.prepare('UPDATE users SET password_hash = ?, password_salt = ?, must_change_password = 1, invitation_pending = 0, updated_at = ? WHERE id = ?')
+          .run(record.hash, record.salt, nowIso(), userId);
+        db.prepare('DELETE FROM invitations WHERE user_id = ?').run(userId);
+        db.prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL').run(nowIso(), userId);
+        writeAudit(db, auth.user.id, 'password_reset', 'user', userId);
+      });
+      return sendJson(res, 200, publicUser(getUserRow(db, userId)));
+    }
     validateEmail(target.email);
     const delivery = await deliverInvitation(db, userId, auth.user.id, invitationMailer(context));
     return sendJson(res, 200, { ...publicUser(getUserRow(db, userId)), ...delivery });

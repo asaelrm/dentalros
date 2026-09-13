@@ -864,13 +864,12 @@
                 <option value="admin">Administrador</option>
               </select>
             </label>
-            <label>
-              Correo del destinatario
-              <input type="email" name="email" maxlength="254" autocomplete="email" required />
-            </label>
+            <label>Correo (opcional)<input type="email" name="email" maxlength="254" autocomplete="email" /></label>
+            <label>Contraseña temporal<input type="password" name="password" minlength="6" maxlength="1024" autocomplete="new-password" required /></label>
+            <label>Confirmar contraseña<input type="password" name="confirmPassword" minlength="6" maxlength="1024" autocomplete="new-password" required /></label>
             <button type="submit" class="btn-primary auth-submit">Crear usuario</button>
           </form>
-          <p class="form-note">Enviaremos un enlace privado por correo para que el usuario cree su contraseña. El enlace vence en 24 horas.</p>
+          <p class="form-note">Entrega la contraseña temporal de forma privada. El usuario deberá cambiarla al iniciar sesión por primera vez.</p>
         </section>
 
         <section class="user-list-panel">
@@ -895,7 +894,9 @@
       <p class="text-xs text-slate-500 mt-1 mb-4">Cuenta: <strong id="reset-password-user-name"></strong></p>
       <form id="form-reset-password" class="auth-form compact-form">
         <input type="hidden" name="userId" />
-        <p>Se enviará un enlace privado al correo registrado. La persona elegirá su contraseña; no se mostrará al administrador.</p>
+        <p>Define una contraseña temporal. El usuario tendrá que cambiarla en su próximo inicio de sesión.</p>
+        <label>Contraseña temporal<input type="password" name="password" minlength="6" maxlength="1024" autocomplete="new-password" required /></label>
+        <label>Confirmar contraseña<input type="password" name="confirmPassword" minlength="6" maxlength="1024" autocomplete="new-password" required /></label>
         <div class="modal-actions">
           <button id="btn-cancelar-reset-password" type="button" class="secondary-button">Cancelar</button>
           <button type="submit" class="btn-primary auth-submit">Restablecer</button>

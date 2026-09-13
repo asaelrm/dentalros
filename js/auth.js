@@ -421,7 +421,7 @@ class AuthManager {
           <div class="user-card-status">
             <span class="role-dot role-${user.role}"></span>
             <strong>${escape(user.displayName)}</strong>
-            ${user.invitationPending ? '<span class="self-badge">Invitación pendiente</span>' : ''}
+            ${user.mustChangePassword ? '<span class="self-badge">Cambio de contraseña pendiente</span>' : ''}
             ${isSelf ? '<span class="self-badge">Tu cuenta</span>' : ''}
           </div>
           <div class="user-edit-grid">
@@ -437,7 +437,7 @@ class AuthManager {
           </div>
           <div class="user-card-actions">
             <button type="button" class="btn-user-save" ${restricted ? 'disabled' : ''}>Guardar cambios</button>
-            <button type="button" class="btn-user-reset" ${isSelf || restricted ? 'disabled' : ''}>Enviar enlace</button>
+            <button type="button" class="btn-user-reset" ${isSelf || restricted ? 'disabled' : ''}>Restablecer contraseña</button>
             <button type="button" class="btn-user-delete" ${isSelf || restricted ? 'disabled' : ''}>Eliminar</button>
           </div>
         </article>
@@ -456,6 +456,11 @@ class AuthManager {
     event.preventDefault();
     const form = event.currentTarget;
     const values = new FormData(form);
+    const password = String(values.get('password') || '');
+    if (password !== String(values.get('confirmPassword') || '')) {
+      this.notify('Las contraseñas no coinciden.', 'error');
+      return;
+    }
     this.setFormBusy(form, true, 'Creando...');
     try {
       const created = await window.apiClient.request('/api/users', {
@@ -464,12 +469,13 @@ class AuthManager {
           displayName: String(values.get('displayName') || ''),
           username: String(values.get('username') || ''),
           role: String(values.get('role') || 'lector'),
-          email: String(values.get('email') || '')
+          email: String(values.get('email') || ''),
+          password
         }
       });
       form.reset();
       await this.loadUsers();
-      this.notify(created.invitationSent ? 'Cuenta creada. El correo fue aceptado por el servidor de envío.' : created.deliveryError, created.invitationSent ? 'success' : 'error');
+      this.notify('Cuenta creada. Entrega la contraseña temporal al usuario de forma privada.');
     } catch (error) {
       this.notify(error.message, 'error');
     } finally {
@@ -513,15 +519,20 @@ class AuthManager {
     event.preventDefault();
     const form = event.currentTarget;
     const values = new FormData(form);
+    const password = String(values.get('password') || '');
+    if (password !== String(values.get('confirmPassword') || '')) {
+      this.notify('Las contraseñas no coinciden.', 'error');
+      return;
+    }
     this.setFormBusy(form, true, 'Restableciendo...');
     try {
       const result = await window.apiClient.request(`/api/users/${Number(values.get('userId'))}/reset-password`, {
         method: 'POST',
-        body: {}
+        body: { password }
       });
       this.closeModal('modal-reset-password');
       await this.loadUsers();
-      this.notify(result.invitationSent ? 'Enlace enviado al correo registrado.' : result.deliveryError, result.invitationSent ? 'success' : 'error');
+      this.notify('Contraseña temporal actualizada. El usuario deberá cambiarla al iniciar sesión.');
     } catch (error) {
       this.notify(error.message, 'error');
     } finally {
