@@ -304,6 +304,7 @@ class OdontoApp {
       <span>&bull;</span>
       <span><strong>Seguro/ARS:</strong> ${escape(p.insuranceName || 'Sin especificar')}</span>
       ${p.affiliateNumber ? `<span>&bull;</span><span><strong>Afiliado/carnet:</strong> ${escape(p.affiliateNumber)}</span>` : ''}
+      ${p.authorizationNumber ? `<span>&bull;</span><span><strong>Autorización:</strong> ${escape(p.authorizationNumber)}</span>` : ''}
     `;
 
     // Alerta de Alergia
@@ -327,7 +328,7 @@ class OdontoApp {
 
     const p = this.currentPaciente;
     const insuranceSummary = document.getElementById('history-insurance-summary');
-    if (insuranceSummary) insuranceSummary.innerHTML = `<p class="section-eyebrow">Cobertura del paciente</p><div class="flex flex-wrap gap-x-6 gap-y-1 mt-1 text-sm"><span><strong>Seguro/ARS:</strong> ${window.escapeHTML(p.insuranceName || 'Sin especificar')}</span><span><strong>Afiliado/carnet:</strong> ${window.escapeHTML(p.affiliateNumber || 'No aplica')}</span>${p.policyNumber ? `<span><strong>Póliza:</strong> ${window.escapeHTML(p.policyNumber)}</span>` : ''}</div>`;
+    if (insuranceSummary) insuranceSummary.innerHTML = `<p class="section-eyebrow">Cobertura del paciente</p><div class="flex flex-wrap gap-x-6 gap-y-1 mt-1 text-sm"><span><strong>Seguro/ARS:</strong> ${window.escapeHTML(p.insuranceName || 'Sin especificar')}</span><span><strong>Afiliado/carnet:</strong> ${window.escapeHTML(p.affiliateNumber || 'No aplica')}</span>${p.policyNumber ? `<span><strong>Póliza:</strong> ${window.escapeHTML(p.policyNumber)}</span>` : ''}${p.authorizationNumber ? `<span><strong>Autorización:</strong> ${window.escapeHTML(p.authorizationNumber)}</span>` : ''}</div>`;
 
     f.motivoPrincipal.value = h.motivoPrincipal || '';
     f.alergias.value = h.alergias || '';
@@ -585,7 +586,8 @@ class OdontoApp {
             telefonoEmergencia: f.telefonoEmergencia.value.trim(),
             insuranceId: insuranceId ? Number(insuranceId) : null,
             affiliateNumber: f.affiliateNumber.value.trim(),
-            policyNumber: f.policyNumber.value.trim()
+            policyNumber: f.policyNumber.value.trim(),
+            authorizationNumber: f.authorizationNumber.value.trim()
           };
 
           // Solo asignar id si es una edición
@@ -909,6 +911,7 @@ class OdontoApp {
       f.insuranceId.value = paciente.insuranceId || '';
       f.affiliateNumber.value = paciente.affiliateNumber || '';
       f.policyNumber.value = paciente.policyNumber || '';
+      f.authorizationNumber.value = paciente.authorizationNumber || '';
     } else {
       title.textContent = 'Registrar Nuevo Paciente';
       f.pacienteId.value = '';

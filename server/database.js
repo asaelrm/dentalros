@@ -100,6 +100,7 @@ function openDatabase(filename) {
     if (!patientColumns.has('insurance_id')) db.exec('ALTER TABLE pacientes ADD COLUMN insurance_id INTEGER REFERENCES insurers(id)');
     if (!patientColumns.has('numero_afiliado')) db.exec('ALTER TABLE pacientes ADD COLUMN numero_afiliado TEXT');
     if (!patientColumns.has('numero_poliza')) db.exec('ALTER TABLE pacientes ADD COLUMN numero_poliza TEXT');
+    if (!patientColumns.has('numero_autorizacion')) db.exec('ALTER TABLE pacientes ADD COLUMN numero_autorizacion TEXT');
     const columns = new Set(db.prepare('PRAGMA table_info(users)').all().map(column => column.name));
     if (!columns.has('professional_role')) db.exec("ALTER TABLE users ADD COLUMN professional_role TEXT");
     if (!columns.has('email')) db.exec("ALTER TABLE users ADD COLUMN email TEXT");

@@ -354,12 +354,13 @@ function patientFromRow(row) {
     insuranceId: row.insurance_id == null ? null : Number(row.insurance_id),
     insuranceName: row.insurance_name || '',
     affiliateNumber: row.numero_afiliado || '',
-    policyNumber: row.numero_poliza || ''
+    policyNumber: row.numero_poliza || '',
+    authorizationNumber: row.numero_autorizacion || ''
   };
 }
 
 const PATIENT_SELECT = `SELECT p.id, p.data, p.insurance_id, p.numero_afiliado, p.numero_poliza,
-  i.nombre AS insurance_name FROM pacientes p LEFT JOIN insurers i ON i.id = p.insurance_id`;
+  p.numero_autorizacion, i.nombre AS insurance_name FROM pacientes p LEFT JOIN insurers i ON i.id = p.insurance_id`;
 
 function historyFromRow(row) {
   return { ...parseData(row.data), pacienteId: Number(row.paciente_id) };
@@ -391,7 +392,7 @@ function ensurePatient(db, patientId) {
 
 function validatePatientInput(body) {
   validateJsonObject(body, 'El paciente');
-  const data = cleanData(body, ['id', 'pacienteId', 'insuranceId', 'affiliateNumber', 'policyNumber']);
+  const data = cleanData(body, ['id', 'pacienteId', 'insuranceId', 'affiliateNumber', 'policyNumber', 'authorizationNumber']);
   requireTextField(data, 'nombre', 'El nombre');
   requireTextField(data, 'apellido', 'El apellido');
   validateKnownStrings(data, [
@@ -412,9 +413,10 @@ function patientInsuranceInput(db, body) {
   if (insuranceId && !insurer) throw new HttpError(400, 'El seguro/ARS seleccionado no existe o está inactivo.');
   const affiliateNumber = String(body.affiliateNumber || '').trim();
   const policyNumber = String(body.policyNumber || '').trim();
-  if (affiliateNumber.length > 100 || policyNumber.length > 100) throw new HttpError(400, 'Los números de seguro admiten hasta 100 caracteres.');
+  const authorizationNumber = String(body.authorizationNumber || '').trim();
+  if (affiliateNumber.length > 100 || policyNumber.length > 100 || authorizationNumber.length > 100) throw new HttpError(400, 'Los números de seguro admiten hasta 100 caracteres.');
   if (insurer && insurer.codigo !== 'PRIVADO' && !affiliateNumber) throw new HttpError(400, 'El número de afiliado/carnet es obligatorio para este seguro.');
-  return { insuranceId, affiliateNumber, policyNumber };
+  return { insuranceId, affiliateNumber, policyNumber, authorizationNumber };
 }
 
 function validateHistoryInput(body) {
@@ -516,7 +518,7 @@ function normalizeBackup(body) {
 
   const pacientes = body.pacientes.map((record) => {
     validateJsonObject(record, 'Un paciente del respaldo');
-    return { id: positiveId(record.id, 'ID de paciente'), insuranceId: record.insuranceId == null ? null : positiveId(record.insuranceId, 'Seguro de paciente'), affiliateNumber: String(record.affiliateNumber || ''), policyNumber: String(record.policyNumber || ''), data: cleanData(record, ['id', 'pacienteId', 'insuranceId', 'insuranceName', 'affiliateNumber', 'policyNumber']) };
+    return { id: positiveId(record.id, 'ID de paciente'), insuranceId: record.insuranceId == null ? null : positiveId(record.insuranceId, 'Seguro de paciente'), affiliateNumber: String(record.affiliateNumber || ''), policyNumber: String(record.policyNumber || ''), authorizationNumber: String(record.authorizationNumber || ''), data: cleanData(record, ['id', 'pacienteId', 'insuranceId', 'insuranceName', 'affiliateNumber', 'policyNumber', 'authorizationNumber']) };
   });
   const historiasRaw = normalizeLegacyCollection(
     body.historias ?? body.historiasClinicas,
@@ -634,12 +636,12 @@ function importBackup(db, backup, actorId) {
       const insertInsurer = db.prepare('INSERT INTO insurers (id, nombre, codigo, activo) VALUES (?, ?, ?, ?)');
       for (const item of backup.insurers) insertInsurer.run(item.id, item.nombre, item.codigo, Number(item.activo));
     }
-    const insertPatient = db.prepare('INSERT INTO pacientes (id, data, insurance_id, numero_afiliado, numero_poliza) VALUES (?, ?, ?, ?, ?)');
+    const insertPatient = db.prepare('INSERT INTO pacientes (id, data, insurance_id, numero_afiliado, numero_poliza, numero_autorizacion) VALUES (?, ?, ?, ?, ?, ?)');
     const insertHistory = db.prepare('INSERT INTO historias (paciente_id, data) VALUES (?, ?)');
     const insertConsultation = db.prepare('INSERT INTO consultas (id, paciente_id, data) VALUES (?, ?, ?)');
     const insertOdontogram = db.prepare('INSERT INTO odontogramas (paciente_id, data) VALUES (?, ?)');
 
-    for (const item of backup.pacientes) insertPatient.run(item.id, JSON.stringify(item.data), item.insuranceId, item.affiliateNumber || null, item.policyNumber || null);
+    for (const item of backup.pacientes) insertPatient.run(item.id, JSON.stringify(item.data), item.insuranceId, item.affiliateNumber || null, item.policyNumber || null, item.authorizationNumber || null);
     for (const item of backup.historias) insertHistory.run(item.pacienteId, JSON.stringify(item.data));
     for (const item of backup.consultas) {
       insertConsultation.run(item.id, item.pacienteId, JSON.stringify(item.data));
@@ -1177,8 +1179,8 @@ async function handleApi(req, res, pathname, context) {
     data.fechaRegistro = data.fechaRegistro || timestamp;
     data.fechaActualizacion = timestamp;
     const patientId = runTransaction(db, () => {
-      const result = db.prepare('INSERT INTO pacientes (data, insurance_id, numero_afiliado, numero_poliza) VALUES (?, ?, ?, ?)')
-        .run(JSON.stringify(data), insurance.insuranceId, insurance.affiliateNumber || null, insurance.policyNumber || null);
+      const result = db.prepare('INSERT INTO pacientes (data, insurance_id, numero_afiliado, numero_poliza, numero_autorizacion) VALUES (?, ?, ?, ?, ?)')
+        .run(JSON.stringify(data), insurance.insuranceId, insurance.affiliateNumber || null, insurance.policyNumber || null, insurance.authorizationNumber || null);
       const id = Number(result.lastInsertRowid);
       writeAudit(db, auth.user.id, 'patient_create', 'paciente', id);
       return id;
@@ -1204,8 +1206,8 @@ async function handleApi(req, res, pathname, context) {
     const insurance = patientInsuranceInput(db, body);
     const data = { ...parseData(row.data), ...incoming, fechaActualizacion: nowIso() };
     runTransaction(db, () => {
-      db.prepare('UPDATE pacientes SET data = ?, insurance_id = ?, numero_afiliado = ?, numero_poliza = ? WHERE id = ?')
-        .run(JSON.stringify(data), insurance.insuranceId, insurance.affiliateNumber || null, insurance.policyNumber || null, patientId);
+      db.prepare('UPDATE pacientes SET data = ?, insurance_id = ?, numero_afiliado = ?, numero_poliza = ?, numero_autorizacion = ? WHERE id = ?')
+        .run(JSON.stringify(data), insurance.insuranceId, insurance.affiliateNumber || null, insurance.policyNumber || null, insurance.authorizationNumber || null, patientId);
       writeAudit(db, auth.user.id, 'patient_update', 'paciente', patientId);
     });
     return sendJson(res, 200, patientFromRow(db.prepare(`${PATIENT_SELECT} WHERE p.id = ?`).get(patientId)));

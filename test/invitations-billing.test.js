@@ -105,9 +105,10 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del cat√
   const customInsurer = await f.request('/api/insurers', 'POST', { nombre: 'ARS Comunitaria' }, sessions.secretaria);
   assert.equal(customInsurer.status, 201);
   assert.equal((await f.request('/api/insurers', 'POST', { nombre: 'ars comunitaria' }, sessions.secretaria)).data.id, customInsurer.data.id);
-  const insuredPatient = await f.request('/api/pacientes', 'POST', { nombre: 'Paciente', apellido: 'Asegurado', insuranceId: customInsurer.data.id, affiliateNumber: 'AF-100', policyNumber: 'POL-9' }, sessions.secretaria);
+  const insuredPatient = await f.request('/api/pacientes', 'POST', { nombre: 'Paciente', apellido: 'Asegurado', insuranceId: customInsurer.data.id, affiliateNumber: 'AF-100', policyNumber: 'POL-9', authorizationNumber: 'AUT-77' }, sessions.secretaria);
   assert.equal(insuredPatient.data.insuranceName, 'ARS Comunitaria');
   assert.equal(insuredPatient.data.affiliateNumber, 'AF-100');
+  assert.equal(insuredPatient.data.authorizationNumber, 'AUT-77');
   assert.equal((await f.request(`/api/pacientes/${patientId}/consultas`, 'POST', { motivo: 'No permitido' }, sessions.auxiliar)).status, 403);
   const line = { procedimientoId: procedure.data.id, diagnosticoId: diagnosis.data.id, cantidad: 3 };
   const visitPath = `/api/pacientes/${patientId}/consultas`;

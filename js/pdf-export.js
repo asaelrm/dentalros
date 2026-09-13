@@ -57,6 +57,8 @@ class PDFExporter {
               <span style="color:#9f1239;font-weight:700;">Correo</span><span style="color:#334155;word-break:break-word;">${escape(paciente.email || '-')}</span>
               <span style="color:#9f1239;font-weight:700;">Seguro/ARS</span><span style="color:#334155;">${escape(paciente.insuranceName || 'Sin especificar')}</span>
               <span style="color:#9f1239;font-weight:700;">Afiliado</span><span style="color:#334155;">${escape(paciente.affiliateNumber || '-')}</span>
+              <span style="color:#9f1239;font-weight:700;">Póliza</span><span style="color:#334155;">${escape(paciente.policyNumber || '-')}</span>
+              <span style="color:#9f1239;font-weight:700;">Autorización</span><span style="color:#334155;">${escape(paciente.authorizationNumber || '-')}</span>
             </div>
           </div>
         </div>
@@ -279,6 +281,10 @@ class PDFExporter {
               <td style="padding: 4px 0; color: #0f172a; font-weight: 600;">${paciente.insuranceName || 'Sin especificar'}</td>
               <td style="padding: 4px 0; color: #64748b; font-weight: 600;">Afiliado / Póliza:</td>
               <td style="padding: 4px 0; color: #0f172a;">${paciente.affiliateNumber || '-'}${paciente.policyNumber ? ' / ' + paciente.policyNumber : ''}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #64748b; font-weight: 600;">Núm. autorización:</td>
+              <td colspan="3" style="padding: 4px 0; color: #0f172a;">${paciente.authorizationNumber || '-'}</td>
             </tr>
             <tr>
               <td style="padding: 4px 0; color: #64748b; font-weight: 600;">Edad / Nacimiento:</td>

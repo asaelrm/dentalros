@@ -78,9 +78,9 @@ El precio y el nombre usados quedan guardados como una copia histórica dentro d
 
 ## Seguros médicos y ARS
 
-Cada paciente puede relacionarse con una aseguradora del catálogo mediante `insurance_id`, número de afiliado/carnet y número de póliza opcional. Las ARS iniciales se crean automáticamente en SQLite sin repetir sus nombres dentro de cada paciente. La opción **Otro** registra una aseguradora nueva y reutiliza el registro existente si el nombre ya estaba creado. **Sin seguro / Privado** no exige número de afiliado.
+Cada paciente puede relacionarse con una aseguradora del catálogo mediante `insurance_id`, número de afiliado/carnet, número de póliza y número de autorización opcionales. Las ARS iniciales se crean automáticamente en SQLite sin repetir sus nombres dentro de cada paciente. La opción **Otro** registra una aseguradora nueva y reutiliza el registro existente si el nombre ya estaba creado. **Sin seguro / Privado** no exige número de afiliado.
 
-El seguro aparece en el encabezado de la Historia Clínica y en los documentos PDF. Puede modificarse desde **Editar paciente**. El respaldo versión 3 incluye el catálogo de aseguradoras y conserva sus relaciones.
+El seguro, la afiliación, la póliza y el número de autorización aparecen en la Historia Clínica y en los documentos PDF, incluida la factura. Pueden modificarse desde **Editar paciente**. El respaldo versión 3 incluye el catálogo de aseguradoras y conserva sus relaciones.
 
 ## Caja y cobros
 
