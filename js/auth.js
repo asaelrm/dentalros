@@ -15,7 +15,7 @@ class AuthManager {
     return this.user?.role === 'admin';
   }
 
-  hasPermission(permission) { return window.DentalPermissions.has(this.user?.role, permission); }
+  hasPermission(permission) { return window.DentalPermissions.has(this.user?.role, permission, this.user?.invoiceAccess); }
 
   canEdit() { return this.hasPermission('clinical.write'); }
 
@@ -72,6 +72,7 @@ class AuthManager {
     document.getElementById('btn-gestionar-usuarios')?.addEventListener('click', () => this.openUsersModal());
     document.getElementById('btn-cerrar-modal-usuarios')?.addEventListener('click', () => this.closeModal('modal-usuarios'));
     document.getElementById('form-crear-usuario')?.addEventListener('submit', event => this.createUser(event));
+    document.querySelector('#form-crear-usuario select[name="role"]')?.addEventListener('change', event => this.updateNewUserInvoiceAccess(event.target.value));
     document.getElementById('form-reset-password')?.addEventListener('submit', event => this.resetPassword(event));
     document.getElementById('btn-cancelar-reset-password')?.addEventListener('click', () => this.closeModal('modal-reset-password'));
     document.getElementById('form-cambiar-password')?.addEventListener('submit', event => this.changePassword(event));
@@ -392,7 +393,15 @@ class AuthManager {
     document.querySelectorAll('#form-crear-usuario option').forEach(option => { option.disabled = this.user.role === 'soporte' && ['admin', 'soporte'].includes(option.value); });
     this.closeUserMenu();
     this.openModal('modal-usuarios');
+    this.updateNewUserInvoiceAccess(document.querySelector('#form-crear-usuario select[name="role"]')?.value);
     await this.loadUsers();
+  }
+
+  updateNewUserInvoiceAccess(role) {
+    const field = document.getElementById('new-user-invoice-access');
+    if (!field) return;
+    field.hidden = role !== 'doctor' || !this.isAdmin();
+    if (field.hidden) field.querySelector('input').checked = false;
   }
 
   async loadUsers() {
@@ -434,6 +443,7 @@ class AuthManager {
               </select>
             </label>
             <label class="active-toggle"><input data-field="active" type="checkbox" ${user.active ? 'checked' : ''} ${isSelf ? 'disabled' : ''} /> Cuenta activa</label>
+            ${user.role === 'doctor' ? `<label class="active-toggle"><input data-field="invoiceAccess" type="checkbox" ${user.invoiceAccess ? 'checked' : ''} ${!this.isAdmin() ? 'disabled' : ''} /> Acceso a facturas</label>` : ''}
           </div>
           <div class="user-card-actions">
             <button type="button" class="btn-user-save" ${restricted ? 'disabled' : ''}>Guardar cambios</button>
@@ -470,7 +480,8 @@ class AuthManager {
           username: String(values.get('username') || ''),
           role: String(values.get('role') || 'lector'),
           email: String(values.get('email') || ''),
-          password
+          password,
+          invoiceAccess: values.get('invoiceAccess') === 'on'
         }
       });
       form.reset();
@@ -491,6 +502,8 @@ class AuthManager {
       role: card.querySelector('[data-field="role"]').value,
       active: card.querySelector('[data-field="active"]').checked
     };
+    const invoiceAccess = card.querySelector('[data-field="invoiceAccess"]');
+    if (invoiceAccess && this.isAdmin()) body.invoiceAccess = invoiceAccess.checked;
     try {
       const updatedUser = await window.apiClient.request(`/api/users/${userId}`, { method: 'PUT', body });
       if (updatedUser.id === this.user.id) {

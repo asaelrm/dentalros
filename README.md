@@ -39,14 +39,14 @@ Después de crear esa cuenta, la configuración inicial se bloquea y solamente u
 | Perfil | Consultar expedientes | Modificar datos clínicos | Usuarios, configuración y respaldos |
 |---|---:|---:|---:|
 | Administrador | Sí | Sí | Sí |
-| Doctor/a | Sí | Historia clínica, diagnósticos, consultas y facturas | No |
+| Doctor/a | Sí | Historia clínica, diagnósticos y consultas; facturas solo si el administrador lo autoriza | No |
 | Secretaría | Sí | Pacientes, citas y facturas con precios definidos | No |
 | Auxiliar de odontología | Sí | No | No |
 | Soporte técnico | No | No | Usuarios no administrativos, sin acceso clínico |
 | Editor | Sí | Sí | No |
 | Solo lectura | Sí | No | No |
 
-El administrador asigna el perfil desde `Menú de usuario > Administrar usuarios`. `Editor` y `Solo lectura` se conservan para las cuentas creadas en versiones anteriores. Los permisos se validan en la interfaz y nuevamente en el servidor, por lo que ocultar o alterar un botón no permite saltarse las restricciones.
+El administrador asigna el perfil desde `Menú de usuario > Administrar usuarios`. Los doctores no ven facturas, procedimientos facturados ni precios de forma predeterminada. El administrador puede habilitar **Acceso a facturas** individualmente al crear o editar una cuenta de doctor. `Editor` y `Solo lectura` se conservan para las cuentas creadas en versiones anteriores. Los permisos se validan en la interfaz y nuevamente en el servidor, por lo que ocultar o alterar un botón no permite saltarse las restricciones.
 
 ## Invitaciones privadas por correo
 

@@ -84,6 +84,11 @@ class OdontoApp {
       if (button) button.hidden = !window.authManager.hasPermission('patients.write');
     }
     document.getElementById('btn-nueva-consulta').hidden = !window.authManager.hasPermission('consultations.write');
+    const invoiceTab = document.querySelector('.tab-btn[data-tab="facturas"]');
+    const invoicePane = document.getElementById('tab-pane-facturas');
+    const canAccessInvoices = window.authManager.hasPermission('invoice.write');
+    if (invoiceTab) invoiceTab.hidden = !canAccessInvoices;
+    if (invoicePane && !canAccessInvoices) invoicePane.classList.add('hidden');
     const historiaForm = document.getElementById('form-historia-clinica');
     if (historiaForm) {
       historiaForm.querySelectorAll('input, textarea, select, button[type="submit"]').forEach(control => {

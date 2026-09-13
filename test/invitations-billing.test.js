@@ -106,6 +106,10 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del cat�
   const visit = await f.request(visitPath, 'POST', { motivo: 'Consulta', diagnostico: 'Historia clínica' }, sessions.doctor);
   assert.equal(visit.status, 201);
   const invoicePath = `/api/consultas/${visit.data.id}/factura`;
+  assert.equal((await f.request(invoicePath, 'PUT', { diagnostico: 'Sin permiso', procedimientos: [line] }, sessions.doctor)).status, 403);
+  assert.equal(Object.hasOwn((await f.request(visitPath, 'GET', undefined, sessions.doctor)).data[0], 'factura'), false);
+  const grantedDoctor = await f.request(`/api/users/${users.doctor.id}`, 'PUT', { invoiceAccess: true }, f.admin);
+  assert.equal(grantedDoctor.data.invoiceAccess, true);
   assert.equal((await f.request(invoicePath, 'PUT', { diagnostico: 'Factura', procedimientos: [{ ...line, precio: 0.01 }] }, sessions.secretaria)).status, 400);
   assert.equal((await f.request(invoicePath, 'PUT', { diagnostico: 'Factura', procedimientos: [{ ...line, cantidad: 1.5 }] }, sessions.doctor)).status, 400);
   const invoice = await f.request(invoicePath, 'PUT', { diagnostico: 'Diagnóstico facturable', procedimientos: [line, { ...line, cantidad: 2 }] }, sessions.secretaria);
@@ -130,10 +134,14 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del cat�
   assert.equal((await f.request('/api/backup/import', 'POST', backup, f.admin)).status, 200);
   history = await f.request(visitPath, 'GET', undefined, sessions.doctor);
   assert.equal(history.data.find(item => item.id === visit.data.id).factura.total, 60);
+  const revokedDoctor = await f.request(`/api/users/${users.doctor.id}`, 'PUT', { invoiceAccess: false }, f.admin);
+  assert.equal(revokedDoctor.data.invoiceAccess, false);
+  assert.equal(Object.hasOwn((await f.request(visitPath, 'GET', undefined, sessions.doctor)).data[0], 'factura'), false);
+  assert.equal((await f.request(invoicePath, 'PUT', { diagnostico: 'Revocado', procedimientos: [line] }, sessions.doctor)).status, 403);
   const invalid = structuredClone(backup);
   invalid.consultas[0].factura.procedimientos[0].subtotalCentavos = -1;
   assert.equal((await f.request('/api/backup/import', 'POST', invalid, f.admin)).status, 400);
-  assert.equal((await f.request('/api/catalogo', 'GET', undefined, sessions.doctor)).data.length, 2);
+  assert.equal((await f.request('/api/catalogo', 'GET', undefined, sessions.doctor)).data.length, 1);
 });
 
 test('Configuración SMTP exige origen válido y TLS', () => {

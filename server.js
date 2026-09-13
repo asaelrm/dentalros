@@ -276,6 +276,7 @@ function publicUser(row) {
     displayName: row.display_name,
     role: row.professional_role || row.role,
     email: row.email || '',
+    invoiceAccess: Boolean(row.invoice_access),
     invitationPending: Boolean(row.invitation_pending),
     active: Boolean(row.active),
     mustChangePassword: Boolean(row.must_change_password),
@@ -357,6 +358,12 @@ function historyFromRow(row) {
 
 function consultationFromRow(row) {
   return { ...parseData(row.data), id: Number(row.id), pacienteId: Number(row.paciente_id) };
+}
+
+function consultationForUser(consultation, user) {
+  if (permissions.has(user.role, 'invoice.write', user.invoiceAccess)) return consultation;
+  const { factura, costo, procedimientos, ...clinicalData } = consultation;
+  return clinicalData;
 }
 
 function odontogramFromRow(row) {
@@ -627,7 +634,7 @@ function isKnownProtectedPath(pathname) {
 }
 
 function requirePermission(auth, permission) {
-  if (!permissions.has(auth.user.role, permission)) throw new HttpError(403, 'No tienes permiso para esta acción.');
+  if (!permissions.has(auth.user.role, permission, auth.user.invoiceAccess)) throw new HttpError(403, 'No tienes permiso para esta acción.');
 }
 function requireUserManager(auth) { requirePermission(auth, 'users.manage'); }
 function canManageTarget(auth, target) {
@@ -667,7 +674,11 @@ async function handleCatalog(req, res, pathname, context, auth) {
   const { db, bodyLimit } = context;
   const match = pathname.match(/^\/api\/catalogo(?:\/(\d+))?$/);
   if (!match) return false;
-  if (req.method === 'GET' && !match[1]) { sendJson(res, 200, getCatalog(db)); return true; }
+  if (req.method === 'GET' && !match[1]) {
+    const catalog = getCatalog(db);
+    sendJson(res, 200, permissions.has(auth.user.role, 'invoice.write', auth.user.invoiceAccess) ? catalog : catalog.filter(item => item.tipo === 'diagnostico'));
+    return true;
+  }
   requirePermission(auth, 'catalog.write');
   if (!['POST', 'PUT'].includes(req.method) || (req.method === 'POST' && match[1]) || (req.method === 'PUT' && !match[1])) throw new HttpError(404, 'Endpoint no encontrado.');
   const item = billing.catalogItem(requireObject(await readJsonBody(req, bodyLimit)));
@@ -688,7 +699,7 @@ async function handleCatalog(req, res, pathname, context, auth) {
 }
 function pricedConsultation(db, auth, incoming, previous = {}) {
   if (Object.hasOwn(incoming, 'factura')) throw new HttpError(400, 'La factura se administra desde su sección independiente.');
-  if (!permissions.has(auth.user.role, 'clinical.write')) {
+  if (!permissions.has(auth.user.role, 'clinical.write', auth.user.invoiceAccess)) {
     for (const field of ['motivo', 'diagnostico', 'tratamiento', 'receta', 'observaciones', 'proximaCita']) {
       if (Object.hasOwn(incoming, field) && incoming[field] !== previous[field] && incoming[field] !== '') throw new HttpError(403, 'Solo el personal clínico autorizado puede registrar diagnósticos y notas clínicas.');
       delete incoming[field];
@@ -708,7 +719,7 @@ function invoiceFromInput(db, auth, body, previous = null) {
   const diagnostico = Object.hasOwn(body, 'diagnostico') ? String(body.diagnostico || '').trim() : (previous?.diagnostico || '');
   if (!diagnostico || diagnostico.length > 1000) throw new HttpError(400, 'El diagnóstico de la factura es obligatorio y admite hasta 1000 caracteres.');
   const sourceLines = Object.hasOwn(body, 'procedimientos') ? body.procedimientos : (previous?.procedimientos || []);
-  const procedimientos = billing.lines(sourceLines, getCatalog(db), permissions.has(auth.user.role, 'invoice.price'), previous?.procedimientos || []);
+  const procedimientos = billing.lines(sourceLines, getCatalog(db), permissions.has(auth.user.role, 'invoice.price', auth.user.invoiceAccess), previous?.procedimientos || []);
   return {
     diagnostico,
     procedimientos,
@@ -876,6 +887,9 @@ async function handleApi(req, res, pathname, context) {
     const displayName = validateDisplayName(body.displayName);
     const role = validateRole(body.role);
     canManageTarget(auth, { role });
+    if (Object.hasOwn(body, 'invoiceAccess') && typeof body.invoiceAccess !== 'boolean') throw new HttpError(400, 'invoiceAccess debe ser true o false.');
+    if (body.invoiceAccess && (auth.user.role !== 'admin' || role !== 'doctor')) throw new HttpError(403, 'Solo el administrador puede conceder facturación a un doctor.');
+    const invoiceAccess = role === 'doctor' && auth.user.role === 'admin' && body.invoiceAccess === true;
     const email = body.email ? validateEmail(body.email) : null;
     const hasTemporaryPassword = Object.hasOwn(body, 'password');
     const record = await createPasswordRecord(hasTemporaryPassword ? validatePassword(body.password) : randomBytes(48).toString('base64url'));
@@ -884,9 +898,9 @@ async function handleApi(req, res, pathname, context) {
     try {
       id = runTransaction(db, () => {
         const result = db.prepare(`INSERT INTO users
-          (username, display_name, role, professional_role, email, password_hash, password_salt, active, must_change_password, invitation_pending, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?)`)
-          .run(username, displayName, permissions.baseRole(role), role, email, record.hash, record.salt, hasTemporaryPassword ? 1 : 0, hasTemporaryPassword ? 0 : 1, nowIso(), nowIso());
+          (username, display_name, role, professional_role, email, password_hash, password_salt, active, must_change_password, invitation_pending, invoice_access, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`)
+          .run(username, displayName, permissions.baseRole(role), role, email, record.hash, record.salt, hasTemporaryPassword ? 1 : 0, hasTemporaryPassword ? 0 : 1, invoiceAccess ? 1 : 0, nowIso(), nowIso());
         writeAudit(db, auth.user.id, 'user_create', 'user', Number(result.lastInsertRowid), { username, role });
         return Number(result.lastInsertRowid);
       });
@@ -932,7 +946,7 @@ async function handleApi(req, res, pathname, context) {
     if (!current) throw new HttpError(404, 'Usuario no encontrado.');
     const body = requireObject(await readJsonBody(req, bodyLimit));
     canManageTarget(auth, publicUser(current));
-    const allowedFields = ['username', 'displayName', 'role', 'active', 'email'];
+    const allowedFields = ['username', 'displayName', 'role', 'active', 'email', 'invoiceAccess'];
     if (!allowedFields.some((field) => Object.hasOwn(body, field))) {
       throw new HttpError(400, 'Debes indicar al menos un campo para actualizar.');
     }
@@ -946,6 +960,9 @@ async function handleApi(req, res, pathname, context) {
       : current.display_name;
     const role = Object.hasOwn(body, 'role') ? validateRole(body.role) : (current.professional_role || current.role);
     canManageTarget(auth, { role });
+    if (Object.hasOwn(body, 'invoiceAccess') && typeof body.invoiceAccess !== 'boolean') throw new HttpError(400, 'invoiceAccess debe ser true o false.');
+    if (Object.hasOwn(body, 'invoiceAccess') && auth.user.role !== 'admin') throw new HttpError(403, 'Solo el administrador puede cambiar el permiso de facturación.');
+    const invoiceAccess = role === 'doctor' && (Object.hasOwn(body, 'invoiceAccess') ? body.invoiceAccess : Boolean(current.invoice_access));
     const email = Object.hasOwn(body, 'email') ? validateEmail(body.email) : current.email;
     if (current.email && email !== current.email && auth.user.role !== 'admin') throw new HttpError(403, 'Solo el administrador puede cambiar el correo de una cuenta.');
     if (Object.hasOwn(body, 'active') && typeof body.active !== 'boolean') {
@@ -970,9 +987,9 @@ async function handleApi(req, res, pathname, context) {
     try {
       runTransaction(db, () => {
         db.prepare(`
-          UPDATE users SET username = ?, display_name = ?, role = ?, professional_role = ?, email = ?, active = ?, updated_at = ?
+          UPDATE users SET username = ?, display_name = ?, role = ?, professional_role = ?, email = ?, active = ?, invoice_access = ?, updated_at = ?
           WHERE id = ?
-        `).run(username, displayName, permissions.baseRole(role), role, email, active ? 1 : 0, nowIso(), userId);
+        `).run(username, displayName, permissions.baseRole(role), role, email, active ? 1 : 0, invoiceAccess ? 1 : 0, nowIso(), userId);
         if (!active || email !== current.email) db.prepare('DELETE FROM invitations WHERE user_id = ?').run(userId);
         if (!active) {
           db.prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL')
@@ -1014,7 +1031,7 @@ async function handleApi(req, res, pathname, context) {
     return sendJson(res, 200, { success: true });
   }
 
-  if (!permissions.has(auth.user.role, 'clinical.read')) throw new HttpError(403, 'Este perfil no tiene acceso a expedientes clínicos.');
+  if (!permissions.has(auth.user.role, 'clinical.read', auth.user.invoiceAccess)) throw new HttpError(403, 'Este perfil no tiene acceso a expedientes clínicos.');
 
   if (await handleCatalog(req, res, pathname, context, auth)) return;
 
@@ -1103,7 +1120,7 @@ async function handleApi(req, res, pathname, context) {
     const consultations = db.prepare(`
       SELECT id, paciente_id, data FROM consultas WHERE paciente_id = ?
       ORDER BY COALESCE(json_extract(data, '$.fecha'), '') DESC, id DESC
-    `).all(patientId).map(consultationFromRow);
+    `).all(patientId).map(consultationFromRow).map(item => consultationForUser(item, auth.user));
     return sendJson(res, 200, consultations);
   }
 
@@ -1136,11 +1153,11 @@ async function handleApi(req, res, pathname, context) {
       db.prepare('UPDATE consultas SET data = ? WHERE id = ?').run(JSON.stringify(data), consultationId);
       writeAudit(db, auth.user.id, 'consultation_update', 'consulta', consultationId);
     });
-    return sendJson(res, 200, {
+    return sendJson(res, 200, consultationForUser({
       ...data,
       id: consultationId,
       pacienteId: Number(row.paciente_id)
-    });
+    }, auth.user));
   }
 
   const invoiceMatch = pathname.match(/^\/api\/consultas\/(\d+)\/factura(?:\/(cerrar|reabrir))?$/);
