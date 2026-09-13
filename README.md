@@ -8,7 +8,7 @@ Aplicación para administrar pacientes, historias clínicas, odontogramas, consu
 - Node.js 24 o superior.
 - Un navegador actualizado, como Chrome, Edge o Firefox.
 
-No requiere instalar paquetes de npm ni un servidor de base de datos externo.
+Para ejecutar la aplicación no se necesitan dependencias adicionales ni un servidor de base de datos externo. Para ejecutar las pruebas, instala las dependencias de desarrollo con `npm ci`.
 
 ## Iniciar el sistema
 
@@ -115,3 +115,13 @@ sistema-odontologico/
 |-- test/server.test.js       # Pruebas de integración
 `-- data/odontologia.sqlite   # Base local creada al iniciar
 ```
+
+## GitHub Pages (modo local)
+
+La publicación en GitHub Pages funciona sin Node.js usando IndexedDB. Permite gestionar pacientes, historias, consultas, odontogramas, configuración y respaldos JSON desde el navegador. No proporciona cuentas, contraseñas ni permisos de servidor. Los datos no se envían a GitHub ni se comparten entre equipos: cualquier persona que use ese perfil de navegador puede acceder a ellos. El modo local se anuncia permanentemente en pantalla.
+
+Exporta respaldos periódicamente y antes de borrar datos del navegador, cambiar de equipo o usar navegación privada. Puedes importar los respaldos anteriores con **Restaurar**. Los datos de SQLite no se publican ni se migran automáticamente.
+
+En GitHub, selecciona **Settings > Pages > Source > GitHub Actions**. El workflow `pages.yml` ejecuta las pruebas y publica únicamente HTML, CSS, JavaScript e imágenes. Cada push a `main` actualiza el sitio. Con un dominio personalizado, el archivo publicado también activa explícitamente el modo local.
+
+Al ejecutar `npm start`, la aplicación sigue usando el servidor y su autenticación. Un error del servidor no cambia automáticamente al almacenamiento local.

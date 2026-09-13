@@ -143,6 +143,9 @@
   </section>
 
   <div id="app-shell" class="flex-1 flex-col" hidden>
+  <aside id="local-mode-notice" hidden role="note" style="padding:12px 16px;background:#fff3cd;color:#664d03;text-align:center;font-size:14px">
+    <strong>Modo local · Sin inicio de sesión.</strong> Los datos se guardan solo en este navegador y dispositivo. Cualquier persona con acceso a este navegador puede verlos. Exporta respaldos: borrar los datos del sitio elimina los expedientes.
+  </aside>
 
   <!-- ================= BARRA SUPERIOR / ENCABEZADO GLASS ================= -->
   <header class="glass-header sticky top-0 z-40 transition-all">
@@ -904,6 +907,7 @@
   <script src="js/mouse-fx.js"></script>
   <script src="js/security.js"></script>
   <script src="js/db.js"></script>
+  <script src="js/db-local.js"></script>
   <script src="js/odontograma.js"></script>
   <script src="js/pdf-export.js"></script>
   <script src="js/app.js"></script>

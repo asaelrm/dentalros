@@ -30,6 +30,16 @@ class AuthManager {
   async init() {
     this.showAuthState('loading');
     try {
+      if (window.odontoDB.isLocal) {
+        await window.odontoDB.init();
+        this.user = { displayName: 'Este navegador', username: 'local', role: 'admin', mustChangePassword: false };
+        this.updateUserUI();
+        document.getElementById('current-user-role').textContent = 'Modo local';
+        document.getElementById('btn-user-menu').hidden = true;
+        document.getElementById('local-mode-notice').hidden = false;
+        await this.enterApplication();
+        return;
+      }
       const setup = await window.apiClient.request('/api/setup-status', { suppressAuthEvent: true });
       if (setup.needsSetup) {
         this.showAuthState('setup');
@@ -216,6 +226,7 @@ class AuthManager {
   }
 
   async offerLegacyMigration() {
+    if (window.odontoDB.isLocal) return;
     if (!this.isAdmin() || localStorage.getItem('odonto_api_migration_complete') === '1') return;
     const legacy = window.odontoDB.getLegacyBackup();
     if (!legacy) return;
