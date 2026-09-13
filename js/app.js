@@ -835,6 +835,7 @@ class OdontoApp {
   openModal(modalId) {
     const m = document.getElementById(modalId);
     if (m) {
+      m.hidden = false;
       m.classList.remove('hidden');
       m.classList.add('flex');
     }
@@ -843,6 +844,7 @@ class OdontoApp {
   closeModal(modalId) {
     const m = document.getElementById(modalId);
     if (m) {
+      m.hidden = true;
       m.classList.add('hidden');
       m.classList.remove('flex');
     }
