@@ -29,7 +29,7 @@ class PDFExporter {
         <td style="padding:10px 8px;text-align:right;font-weight:700;">$${money(item.subtotalCentavos)}</td>
       </tr>`).join('');
 
-    return `<div style="font-family:'Segoe UI',Arial,sans-serif;color:#1e293b;background:#fff;max-width:800px;margin:0 auto;padding:30px 36px;line-height:1.4;">
+    return `<div style="font-family:'Segoe UI',Tahoma,Arial,sans-serif;color:#1e293b;background:#fff;max-width:800px;margin:0 auto;padding:30px 36px;line-height:1.4;">
       <header style="display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #e11d48;padding-bottom:18px;gap:24px;">
         <div style="display:flex;align-items:center;gap:14px;">
           <img src="${window.LOGO_DATA_URL || 'img/logo.jpg'}" alt="DentalRos" style="width:72px;height:72px;object-fit:contain;">
@@ -46,9 +46,29 @@ class PDFExporter {
           <p style="margin:4px 0 0;font-size:11px;color:#64748b;">Estado: ${invoice.estado === 'cerrada' ? 'CERRADA' : 'BORRADOR'}</p>
         </div>
       </header>
-      <section style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:22px 0;padding:14px;background:#fff1f2;border-radius:8px;font-size:11px;">
-        <div><strong style="color:#9f1239;">PACIENTE</strong><br><span style="font-size:14px;font-weight:700;">${escape(paciente.nombre)} ${escape(paciente.apellido)}</span><br>Cédula/DNI: ${escape(paciente.cedula || 'No especificada')}<br>Teléfono: ${escape(paciente.telefono || '-')}</div>
-        <div><strong style="color:#9f1239;">DATOS DE LA FACTURA</strong><br>Fecha de consulta: ${escape(consulta.fecha || '-')}<br>Registro de factura: ${escape(recordedDateTime)}<br>Fecha y hora de emisión: ${escape(generatedDateTime)}</div>
+      <section style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:24px 0;font-size:11px;">
+        <div style="overflow:hidden;border:1px solid #fecdd3;border-radius:12px;background:linear-gradient(145deg,#fff 0%,#fff1f2 100%);box-shadow:0 5px 16px rgba(136,19,55,.07);">
+          <div style="padding:9px 14px;background:#9f1239;color:#fff;font-family:Georgia,'Times New Roman',serif;font-size:13px;font-weight:700;letter-spacing:.5px;">Datos del paciente</div>
+          <div style="padding:14px 16px;">
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:17px;font-weight:700;color:#4c0519;margin-bottom:11px;">${escape(paciente.nombre)} ${escape(paciente.apellido)}</div>
+            <div style="display:grid;grid-template-columns:78px 1fr;gap:6px 8px;line-height:1.5;">
+              <span style="color:#9f1239;font-weight:700;">Cédula/DNI</span><span style="color:#334155;">${escape(paciente.cedula || 'No especificada')}</span>
+              <span style="color:#9f1239;font-weight:700;">Teléfono</span><span style="color:#334155;">${escape(paciente.telefono || '-')}</span>
+              <span style="color:#9f1239;font-weight:700;">Correo</span><span style="color:#334155;word-break:break-word;">${escape(paciente.email || '-')}</span>
+            </div>
+          </div>
+        </div>
+        <div style="overflow:hidden;border:1px solid #cbd5e1;border-radius:12px;background:linear-gradient(145deg,#fff 0%,#f8fafc 100%);box-shadow:0 5px 16px rgba(15,23,42,.07);">
+          <div style="padding:9px 14px;background:#334155;color:#fff;font-family:Georgia,'Times New Roman',serif;font-size:13px;font-weight:700;letter-spacing:.5px;">Datos de la factura</div>
+          <div style="padding:14px 16px;">
+            <div style="font-family:Georgia,'Times New Roman',serif;font-size:17px;font-weight:700;color:#0f172a;margin-bottom:11px;">${invoiceNumber}</div>
+            <div style="display:grid;grid-template-columns:104px 1fr;gap:6px 8px;line-height:1.5;">
+              <span style="color:#475569;font-weight:700;">Consulta</span><span>${escape(consulta.fecha || '-')}</span>
+              <span style="color:#475569;font-weight:700;">Registro</span><span>${escape(recordedDateTime)}</span>
+              <span style="color:#475569;font-weight:700;">Emisión</span><span>${escape(generatedDateTime)}</span>
+            </div>
+          </div>
+        </div>
       </section>
       <section style="margin-bottom:20px;font-size:12px;"><strong style="color:#9f1239;">DIAGNÓSTICO</strong><p style="white-space:pre-wrap;margin:6px 0;">${escape(invoice.diagnostico)}</p></section>
       <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;font-size:11px;">
