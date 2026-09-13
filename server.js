@@ -500,7 +500,7 @@ function getBackup(db) {
     config: getConfig(db),
     catalogo: getCatalog(db),
     insurers: db.prepare('SELECT id, nombre, codigo, activo FROM insurers ORDER BY id').all().map(item => ({ ...item, id: Number(item.id), activo: Boolean(item.activo) })),
-    cashPayments: db.prepare('SELECT * FROM cash_payments ORDER BY id').all().map(row => ({ id: Number(row.id), consultationId: Number(row.consultation_id), patientId: Number(row.patient_id), amountCentavos: Number(row.amount_centavos), coveragePercent: Number(row.coverage_percent || 0), insuranceCoveredCentavos: Number(row.insurance_covered_centavos || 0), patientPaidCentavos: Number(row.patient_paid_centavos ?? row.amount_centavos), paymentMethod: row.payment_method, reference: row.reference || '', receivedByName: row.received_by_name, paidAt: row.paid_at }))
+    cashPayments: db.prepare('SELECT * FROM cash_payments ORDER BY id').all().map(row => ({ id: Number(row.id), consultationId: Number(row.consultation_id), patientId: Number(row.patient_id), amountCentavos: Number(row.amount_centavos), coveragePercent: Number(row.coverage_percent || 0), insuranceCoveredCentavos: Number(row.insurance_covered_centavos || 0), patientPaidCentavos: Number(row.patient_paid_centavos ?? row.amount_centavos), amountReceivedCentavos: Number(row.amount_received_centavos ?? row.patient_paid_centavos), changeCentavos: Number(row.change_centavos || 0), paymentMethod: row.payment_method, reference: row.reference || '', receivedByName: row.received_by_name, paidAt: row.paid_at }))
   };
 }
 
@@ -616,7 +616,7 @@ function normalizeBackup(body) {
   if (body.cashPayments !== undefined) {
     if (!Array.isArray(body.cashPayments) || body.cashPayments.length > 100000) throw new HttpError(400, 'Movimientos de caja inválidos.');
     const consultationIds = new Set(consultas.map(item => item.id));
-    cashPayments = body.cashPayments.map(item => ({ id: positiveId(item.id, 'ID de cobro'), consultationId: positiveId(item.consultationId, 'Consulta del cobro'), patientId: positiveId(item.patientId, 'Paciente del cobro'), amountCentavos: Number(item.amountCentavos), coveragePercent: Number(item.coveragePercent || 0), insuranceCoveredCentavos: Number(item.insuranceCoveredCentavos || 0), patientPaidCentavos: Number(item.patientPaidCentavos ?? item.amountCentavos), paymentMethod: String(item.paymentMethod), reference: String(item.reference || ''), receivedByName: String(item.receivedByName || ''), paidAt: String(item.paidAt || '') }));
+    cashPayments = body.cashPayments.map(item => ({ id: positiveId(item.id, 'ID de cobro'), consultationId: positiveId(item.consultationId, 'Consulta del cobro'), patientId: positiveId(item.patientId, 'Paciente del cobro'), amountCentavos: Number(item.amountCentavos), coveragePercent: Number(item.coveragePercent || 0), insuranceCoveredCentavos: Number(item.insuranceCoveredCentavos || 0), patientPaidCentavos: Number(item.patientPaidCentavos ?? item.amountCentavos), amountReceivedCentavos: Number(item.amountReceivedCentavos ?? item.patientPaidCentavos ?? item.amountCentavos), changeCentavos: Number(item.changeCentavos || 0), paymentMethod: String(item.paymentMethod), reference: String(item.reference || ''), receivedByName: String(item.receivedByName || ''), paidAt: String(item.paidAt || '') }));
     ensureUnique(cashPayments, item => item.id, 'cobros');
     ensureUnique(cashPayments, item => item.consultationId, 'cobros por factura');
     if (cashPayments.some(item => !consultationIds.has(item.consultationId) || !patientIds.has(item.patientId) || !Number.isSafeInteger(item.amountCentavos) || item.amountCentavos < 0 || !['efectivo','tarjeta','transferencia','seguro','otro'].includes(item.paymentMethod) || !item.receivedByName || !item.paidAt)) throw new HttpError(400, 'El respaldo contiene un cobro inválido.');
@@ -674,8 +674,8 @@ function importBackup(db, backup, actorId) {
       const insert = db.prepare('INSERT INTO catalogo (id, tipo, nombre, precio_centavos, activo) VALUES (?, ?, ?, ?, ?)');
       for (const item of backup.catalogo) insert.run(item.id, item.tipo, item.nombre, item.precioCentavos, Number(item.activo));
     }
-    const insertPayment = db.prepare('INSERT INTO cash_payments (id, consultation_id, patient_id, amount_centavos, coverage_percent, insurance_covered_centavos, patient_paid_centavos, payment_method, reference, received_by_name, paid_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-    for (const item of backup.cashPayments || []) insertPayment.run(item.id, item.consultationId, item.patientId, item.amountCentavos, item.coveragePercent, item.insuranceCoveredCentavos, item.patientPaidCentavos, item.paymentMethod, item.reference || null, item.receivedByName, item.paidAt);
+    const insertPayment = db.prepare('INSERT INTO cash_payments (id, consultation_id, patient_id, amount_centavos, coverage_percent, insurance_covered_centavos, patient_paid_centavos, amount_received_centavos, change_centavos, payment_method, reference, received_by_name, paid_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const item of backup.cashPayments || []) insertPayment.run(item.id, item.consultationId, item.patientId, item.amountCentavos, item.coveragePercent, item.insuranceCoveredCentavos, item.patientPaidCentavos, item.amountReceivedCentavos, item.changeCentavos, item.paymentMethod, item.reference || null, item.receivedByName, item.paidAt);
     writeAudit(db, actorId, 'backup_import', 'backup', null, {
       pacientes: backup.pacientes.length,
       historias: backup.historias.length,
@@ -1031,7 +1031,8 @@ async function handleApi(req, res, pathname, context) {
         id: Number(row.id), consultationId: Number(row.consultation_id), patientId: Number(row.patient_id),
         patientName: `${row.patient_name || ''} ${row.patient_lastname || ''}`.trim(), amount: Number(row.amount_centavos) / 100,
         paymentMethod: row.payment_method, reference: row.reference || '', receivedByName: row.received_by_name, paidAt: row.paid_at,
-        coveragePercent: Number(row.coverage_percent || 0), insuranceCovered: Number(row.insurance_covered_centavos || 0) / 100, patientPaid: Number(row.patient_paid_centavos ?? row.amount_centavos) / 100
+        coveragePercent: Number(row.coverage_percent || 0), insuranceCovered: Number(row.insurance_covered_centavos || 0) / 100, patientPaid: Number(row.patient_paid_centavos ?? row.amount_centavos) / 100,
+        amountReceived: Number(row.amount_received_centavos ?? row.patient_paid_centavos) / 100, change: Number(row.change_centavos || 0) / 100
       }));
     const pendingInvoices = db.prepare(`SELECT c.id, c.paciente_id, c.data, p.data AS patient_data FROM consultas c
       JOIN pacientes p ON p.id = c.paciente_id LEFT JOIN cash_payments cp ON cp.consultation_id = c.id
@@ -1062,12 +1063,15 @@ async function handleApi(req, res, pathname, context) {
     if (!Number.isFinite(coveragePercent) || coveragePercent < 0 || coveragePercent > 100) throw new HttpError(400, 'La cobertura del seguro debe estar entre 0% y 100%.');
     const insuranceCoveredCentavos = Math.round(amountCentavos * coveragePercent / 100);
     const patientPaidCentavos = amountCentavos - insuranceCoveredCentavos;
+    const amountReceivedCentavos = body.amountReceived == null || body.amountReceived === '' ? patientPaidCentavos : billing.cents(Number(body.amountReceived));
+    if (amountReceivedCentavos < patientPaidCentavos) throw new HttpError(400, 'El monto entregado por el paciente no cubre la parte que le corresponde pagar.');
+    const changeCentavos = amountReceivedCentavos - patientPaidCentavos;
     const paidAt = nowIso();
     let id;
     try {
       id = runTransaction(db, () => {
-        const result = db.prepare(`INSERT INTO cash_payments (consultation_id, patient_id, amount_centavos, coverage_percent, insurance_covered_centavos, patient_paid_centavos, payment_method, reference, received_by, received_by_name, paid_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(consultationId, Number(row.paciente_id), amountCentavos, coveragePercent, insuranceCoveredCentavos, patientPaidCentavos, paymentMethod, reference || null, auth.user.id, auth.user.displayName, paidAt);
+        const result = db.prepare(`INSERT INTO cash_payments (consultation_id, patient_id, amount_centavos, coverage_percent, insurance_covered_centavos, patient_paid_centavos, amount_received_centavos, change_centavos, payment_method, reference, received_by, received_by_name, paid_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(consultationId, Number(row.paciente_id), amountCentavos, coveragePercent, insuranceCoveredCentavos, patientPaidCentavos, amountReceivedCentavos, changeCentavos, paymentMethod, reference || null, auth.user.id, auth.user.displayName, paidAt);
         writeAudit(db, auth.user.id, 'cash_payment', 'consulta', consultationId, { amountCentavos, coveragePercent, insuranceCoveredCentavos, patientPaidCentavos, paymentMethod });
         return Number(result.lastInsertRowid);
       });
@@ -1075,7 +1079,7 @@ async function handleApi(req, res, pathname, context) {
       if (String(error.message).includes('UNIQUE')) throw new HttpError(409, 'Esta factura ya fue cobrada.');
       throw error;
     }
-    return sendJson(res, 201, { id, consultationId, amount: amountCentavos / 100, coveragePercent, insuranceCovered: insuranceCoveredCentavos / 100, patientPaid: patientPaidCentavos / 100, paymentMethod, reference, receivedByName: auth.user.displayName, paidAt });
+    return sendJson(res, 201, { id, consultationId, amount: amountCentavos / 100, coveragePercent, insuranceCovered: insuranceCoveredCentavos / 100, patientPaid: patientPaidCentavos / 100, amountReceived: amountReceivedCentavos / 100, change: changeCentavos / 100, paymentMethod, reference, receivedByName: auth.user.displayName, paidAt });
   }
 
   if (pathname === '/api/users' && method === 'GET') {

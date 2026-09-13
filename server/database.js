@@ -164,7 +164,10 @@ function openDatabase(filename) {
     if (!cashColumns.has('coverage_percent')) db.exec('ALTER TABLE cash_payments ADD COLUMN coverage_percent REAL NOT NULL DEFAULT 0');
     if (!cashColumns.has('insurance_covered_centavos')) db.exec('ALTER TABLE cash_payments ADD COLUMN insurance_covered_centavos INTEGER NOT NULL DEFAULT 0');
     if (!cashColumns.has('patient_paid_centavos')) db.exec('ALTER TABLE cash_payments ADD COLUMN patient_paid_centavos INTEGER NOT NULL DEFAULT 0');
+    if (!cashColumns.has('amount_received_centavos')) db.exec('ALTER TABLE cash_payments ADD COLUMN amount_received_centavos INTEGER NOT NULL DEFAULT 0');
+    if (!cashColumns.has('change_centavos')) db.exec('ALTER TABLE cash_payments ADD COLUMN change_centavos INTEGER NOT NULL DEFAULT 0');
     db.exec('UPDATE cash_payments SET patient_paid_centavos = amount_centavos WHERE patient_paid_centavos = 0 AND insurance_covered_centavos = 0');
+    db.exec('UPDATE cash_payments SET amount_received_centavos = patient_paid_centavos WHERE amount_received_centavos = 0');
     const insurers = [
       ['SeNaSa','SENASA'],['Primera ARS','PRIMERA'],['MAPFRE Salud ARS','MAPFRE'],['ARS Universal','UNIVERSAL'],
       ['ARS Futuro','FUTURO'],['ARS SEMMA','SEMMA'],['ARS Renacer','RENACER'],['ARS Monumental','MONUMENTAL'],

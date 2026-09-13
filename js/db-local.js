@@ -193,7 +193,8 @@ class LocalOdontoDB extends OdontoDB {
       if (consultation?.factura?.estado !== 'cerrada') throw new Error('La factura debe estar cerrada antes de cobrarla.');
       if (data.cashPayments.some(item => item.consultationId === consultation.id)) throw new Error('Esta factura ya fue cobrada.');
       const coveragePercent = Math.min(100, Math.max(0, Number(payment.coveragePercent || 0))); const insuranceCovered = Number((consultation.factura.total * coveragePercent / 100).toFixed(2));
-      const saved = { id: data.nextPayment++, consultationId: consultation.id, patientId: consultation.pacienteId, amount: consultation.factura.total, coveragePercent, insuranceCovered, patientPaid: Number((consultation.factura.total - insuranceCovered).toFixed(2)), paymentMethod: payment.paymentMethod || 'efectivo', reference: String(payment.reference || ''), receivedByName: 'Este navegador', paidAt: new Date().toISOString() };
+      const patientPaid = Number((consultation.factura.total - insuranceCovered).toFixed(2)); const amountReceived = Number(payment.amountReceived ?? patientPaid); if (amountReceived < patientPaid) throw new Error('El monto entregado no cubre la parte del paciente.');
+      const saved = { id: data.nextPayment++, consultationId: consultation.id, patientId: consultation.pacienteId, amount: consultation.factura.total, coveragePercent, insuranceCovered, patientPaid, amountReceived, change: Number((amountReceived - patientPaid).toFixed(2)), paymentMethod: payment.paymentMethod || 'efectivo', reference: String(payment.reference || ''), receivedByName: 'Este navegador', paidAt: new Date().toISOString() };
       data.cashPayments.push(saved); return structuredClone(saved);
     });
   }
