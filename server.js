@@ -33,6 +33,8 @@ const ROLES = new Set(Object.keys(permissions.labels));
 const CLINICAL_WRITERS = new Set(['admin', 'editor', 'doctor']);
 const DUMMY_SALT = randomBytes(16);
 const DUMMY_HASH = scryptSync('credencial-inexistente', DUMMY_SALT, 64);
+const LOGIN_WINDOW_MS = 15 * 60 * 1000;
+const LOGIN_MAX_FAILURES = 5;
 
 const MIME_TYPES = new Map([
   ['.html', 'text/html; charset=utf-8'],
@@ -843,7 +845,7 @@ function invoiceFromInput(db, auth, body, previous = null, patientId = null) {
 }
 
 async function handleApi(req, res, pathname, context) {
-  const { db, bodyLimit, sessionMaxAge, cookieSecure } = context;
+  const { db, bodyLimit, sessionMaxAge, cookieSecure, loginAttempts } = context;
   const method = req.method;
 
   if (pathname === '/api/auth/accept-invitation' && method === 'POST') {
@@ -906,6 +908,10 @@ async function handleApi(req, res, pathname, context) {
   if (pathname === '/api/auth/login' && method === 'POST') {
     const body = requireObject(await readJsonBody(req, bodyLimit));
     const rawUsername = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
+    const attemptKey = `${req.socket.remoteAddress || 'local'}:${rawUsername.slice(0, 32)}`;
+    const attempt = loginAttempts.get(attemptKey);
+    if (attempt && attempt.blockedUntil > Date.now()) throw new HttpError(429, `Demasiados intentos. Intenta nuevamente en ${Math.ceil((attempt.blockedUntil - Date.now()) / 60000)} minuto(s).`);
+    if (attempt && attempt.blockedUntil <= Date.now()) loginAttempts.delete(attemptKey);
     const usernameValid = USERNAME_PATTERN.test(rawUsername);
     const passwordValid = typeof body.password === 'string' && body.password.length > 0 && body.password.length <= 1024;
     const row = usernameValid ? db.prepare('SELECT * FROM users WHERE username = ?').get(rawUsername) : null;
@@ -915,11 +921,16 @@ async function handleApi(req, res, pathname, context) {
     const matches = await passwordMatches(candidate, salt, expectedHash);
 
     if (!row || !row.active || row.invitation_pending || !passwordValid || !matches) {
+      const current = loginAttempts.get(attemptKey) || { failures: 0, blockedUntil: 0 };
+      current.failures += 1;
+      if (current.failures >= LOGIN_MAX_FAILURES) current.blockedUntil = Date.now() + LOGIN_WINDOW_MS;
+      loginAttempts.set(attemptKey, current);
       writeAudit(db, row ? Number(row.id) : null, 'login_failed', 'auth', null, {
         username: rawUsername.slice(0, 32)
       });
       throw new HttpError(401, 'Credenciales invalidas.');
     }
+    loginAttempts.delete(attemptKey);
 
     const session = runTransaction(db, () => {
       const created = createSessionRecord(db, Number(row.id), sessionMaxAge);
@@ -1062,7 +1073,7 @@ async function handleApi(req, res, pathname, context) {
     const confirmed = payments.filter(payment => payment.status === 'pagado'); const byMethod = {};
     for (const payment of confirmed) for (const line of payment.lines) { const key = line.method === 'tarjeta' ? `Tarjeta ${line.cardBrand || 'Otra'} ${line.cardType || ''}`.trim() : line.method; byMethod[key] = Number(((byMethod[key] || 0) + line.amount).toFixed(2)); }
     const currentSessionRow = db.prepare("SELECT * FROM cash_sessions WHERE cashier_user_id = ? AND status = 'abierta' ORDER BY id DESC LIMIT 1").get(auth.user.id);
-    const mapSession = row => row && ({ id: Number(row.id), cashierName: row.cashier_name, cashierUsername: row.cashier_username, registerNumber: row.register_number, openingCash: Number(row.opening_cash_centavos) / 100, openedAt: row.opened_at, closedAt: row.closed_at, expectedCash: row.expected_cash_centavos == null ? null : Number(row.expected_cash_centavos) / 100, countedCash: row.counted_cash_centavos == null ? null : Number(row.counted_cash_centavos) / 100, difference: row.difference_centavos == null ? null : Number(row.difference_centavos) / 100, status: row.status });
+    const mapSession = row => row && ({ id: Number(row.id), cashierName: row.cashier_name, cashierUsername: row.cashier_username, registerNumber: row.register_number, openingCash: Number(row.opening_cash_centavos) / 100, openedAt: row.opened_at, closedAt: row.closed_at, expectedCash: row.expected_cash_centavos == null ? null : Number(row.expected_cash_centavos) / 100, countedCash: row.counted_cash_centavos == null ? null : Number(row.counted_cash_centavos) / 100, difference: row.difference_centavos == null ? null : Number(row.difference_centavos) / 100, closingNotes: row.closing_notes || '', denominations: parseData(row.denominations_json || '{}'), approvalStatus: row.approval_status || 'no_requerida', status: row.status });
     const sessions = db.prepare('SELECT * FROM cash_sessions WHERE substr(opened_at,1,10) BETWEEN ? AND ? ORDER BY id DESC').all(from, to).map(mapSession);
     return sendJson(res, 200, { from, to, payments, pendingInvoices, currentSession: currentSessionRow ? mapSession(currentSessionRow) : null, sessions, total: Number(confirmed.reduce((sum, item) => sum + item.patientPaid, 0).toFixed(2)), insuranceTotal: Number(confirmed.reduce((sum, item) => sum + item.insuranceCovered, 0).toFixed(2)), voidTotal: Number(payments.filter(item => item.status === 'anulado').reduce((sum,item) => sum + item.patientPaid, 0).toFixed(2)), byMethod });
   }
@@ -1077,10 +1088,10 @@ async function handleApi(req, res, pathname, context) {
 
   if (pathname === '/api/cash/session/close' && method === 'POST') {
     requirePermission(auth, 'cash.write'); const session = db.prepare("SELECT * FROM cash_sessions WHERE cashier_user_id = ? AND status = 'abierta' ORDER BY id DESC LIMIT 1").get(auth.user.id); if (!session) throw new HttpError(409, 'No tienes una caja abierta.');
-    const body = requireObject(await readJsonBody(req, bodyLimit)); const counted = billing.cents(Number(body.countedCash));
+    const body = requireObject(await readJsonBody(req, bodyLimit)); const counted = billing.cents(Number(body.countedCash)); const notes = String(body.notes || '').trim().slice(0,500); const denominations = body.denominations && typeof body.denominations === 'object' && !Array.isArray(body.denominations) ? body.denominations : {};
     const cash = db.prepare("SELECT COALESCE(SUM(pl.amount_centavos),0) total FROM cash_payment_lines pl JOIN cash_payments cp ON cp.id=pl.cash_payment_id WHERE cp.cash_session_id=? AND cp.status='pagado' AND pl.method='efectivo'").get(session.id).total;
     const change = db.prepare("SELECT COALESCE(SUM(change_centavos),0) total FROM cash_payments WHERE cash_session_id=? AND status='pagado'").get(session.id).total; const expected = Number(session.opening_cash_centavos) + Number(cash) - Number(change); const difference = counted - expected; const closedAt = nowIso();
-    db.prepare("UPDATE cash_sessions SET closed_at=?,expected_cash_centavos=?,counted_cash_centavos=?,difference_centavos=?,status='cerrada' WHERE id=?").run(closedAt,expected,counted,difference,session.id); writeAudit(db,auth.user.id,'cash_session_close','cash_session',Number(session.id),{expected,counted,difference}); return sendJson(res,200,{success:true,expectedCash:expected/100,countedCash:counted/100,difference:difference/100,closedAt});
+    const approvalStatus = difference === 0 ? 'no_requerida' : 'pendiente'; db.prepare("UPDATE cash_sessions SET closed_at=?,expected_cash_centavos=?,counted_cash_centavos=?,difference_centavos=?,closing_notes=?,denominations_json=?,approval_status=?,status='cerrada' WHERE id=?").run(closedAt,expected,counted,difference,notes,JSON.stringify(denominations),approvalStatus,session.id); writeAudit(db,auth.user.id,'cash_session_close','cash_session',Number(session.id),{expected,counted,difference,notes,approvalStatus}); return sendJson(res,200,{success:true,expectedCash:expected/100,countedCash:counted/100,difference:difference/100,approvalStatus,closedAt});
   }
 
   const cashActionMatch = pathname.match(/^\/api\/cash\/payments\/(\d+)\/(void|reprint)$/);
@@ -1694,7 +1705,7 @@ function createServer(options = {}) {
 
   if (dbPath !== ':memory:') fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = openDatabase(dbPath);
-  const context = { db, bodyLimit, sessionMaxAge, cookieSecure, mailer: options.mailer }; 
+  const context = { db, bodyLimit, sessionMaxAge, cookieSecure, mailer: options.mailer, loginAttempts: new Map() };
 
   const server = http.createServer((req, res) => {
     let pathname;

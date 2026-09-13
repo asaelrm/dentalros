@@ -197,6 +197,12 @@ function openDatabase(filename) {
     if (!cashColumns.has('cash_session_id')) db.exec('ALTER TABLE cash_payments ADD COLUMN cash_session_id INTEGER REFERENCES cash_sessions(id)');
     if (!cashColumns.has('status')) db.exec("ALTER TABLE cash_payments ADD COLUMN status TEXT NOT NULL DEFAULT 'pagado'");
     if (!cashColumns.has('reprint_count')) db.exec('ALTER TABLE cash_payments ADD COLUMN reprint_count INTEGER NOT NULL DEFAULT 0');
+    const cashSessionColumns = new Set(db.prepare('PRAGMA table_info(cash_sessions)').all().map(column => column.name));
+    if (!cashSessionColumns.has('closing_notes')) db.exec("ALTER TABLE cash_sessions ADD COLUMN closing_notes TEXT NOT NULL DEFAULT ''");
+    if (!cashSessionColumns.has('denominations_json')) db.exec("ALTER TABLE cash_sessions ADD COLUMN denominations_json TEXT NOT NULL DEFAULT '{}'");
+    if (!cashSessionColumns.has('approval_status')) db.exec("ALTER TABLE cash_sessions ADD COLUMN approval_status TEXT NOT NULL DEFAULT 'no_requerida'");
+    if (!cashSessionColumns.has('approved_by')) db.exec('ALTER TABLE cash_sessions ADD COLUMN approved_by INTEGER REFERENCES users(id)');
+    if (!cashSessionColumns.has('approved_at')) db.exec('ALTER TABLE cash_sessions ADD COLUMN approved_at TEXT');
     db.exec('UPDATE cash_payments SET patient_paid_centavos = amount_centavos WHERE patient_paid_centavos = 0 AND insurance_covered_centavos = 0');
     db.exec('UPDATE cash_payments SET amount_received_centavos = patient_paid_centavos WHERE amount_received_centavos = 0');
     db.exec(`INSERT INTO cash_payment_lines (cash_payment_id, method, amount_centavos, reference_number)
