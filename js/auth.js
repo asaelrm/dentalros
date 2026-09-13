@@ -15,16 +15,12 @@ class AuthManager {
     return this.user?.role === 'admin';
   }
 
-  canEdit() {
-    return this.user?.role === 'admin' || this.user?.role === 'editor';
-  }
+  hasPermission(permission) { return window.DentalPermissions.has(this.user?.role, permission); }
+
+  canEdit() { return this.hasPermission('clinical.write'); }
 
   roleLabel(role) {
-    return {
-      admin: 'Administrador',
-      editor: 'Puede editar',
-      lector: 'Solo lectura'
-    }[role] || role;
+    return window.DentalPermissions.labels[role] || role;
   }
 
   async init() {
@@ -70,6 +66,7 @@ class AuthManager {
       event.stopPropagation();
       this.toggleUserMenu();
     });
+    document.getElementById('btn-support-users')?.addEventListener('click', () => this.openUsersModal());
     document.getElementById('btn-cerrar-sesion')?.addEventListener('click', () => this.logout());
     document.getElementById('btn-cambiar-password')?.addEventListener('click', () => this.openPasswordModal(false));
     document.getElementById('btn-gestionar-usuarios')?.addEventListener('click', () => this.openUsersModal());
@@ -217,6 +214,13 @@ class AuthManager {
       appShell.hidden = false;
       appShell.classList.add('flex');
     }
+    if (this.user.role === 'soporte') {
+      [...appShell.children].forEach(element => { if (element.tagName !== 'HEADER' && element.id !== 'support-panel') element.hidden = true; });
+      document.getElementById('support-panel').hidden = false;
+      appShell.querySelectorAll('header button').forEach(button => { if (!['btn-user-menu', 'btn-gestionar-usuarios', 'btn-cambiar-password', 'btn-cerrar-sesion'].includes(button.id)) button.hidden = true; });
+      await this.openUsersModal();
+      return;
+    }
     if (!this.started) {
       this.started = true;
       window.launchOdontoApp();
@@ -281,7 +285,7 @@ class AuthManager {
       if (element) element.textContent = value;
     });
     const usersButton = document.getElementById('btn-gestionar-usuarios');
-    if (usersButton) usersButton.hidden = !this.isAdmin();
+    if (usersButton) usersButton.hidden = !this.hasPermission('users.manage') || window.odontoDB.isLocal;
   }
 
   toggleUserMenu() {
@@ -384,7 +388,8 @@ class AuthManager {
   }
 
   async openUsersModal() {
-    if (!this.isAdmin()) return;
+    if (!this.hasPermission('users.manage') || window.odontoDB.isLocal) return;
+    document.querySelectorAll('#form-crear-usuario option').forEach(option => { option.disabled = this.user.role === 'soporte' && ['admin', 'soporte'].includes(option.value); });
     this.closeUserMenu();
     this.openModal('modal-usuarios');
     await this.loadUsers();
@@ -410,29 +415,30 @@ class AuthManager {
 
     list.innerHTML = this.users.map(user => {
       const isSelf = user.id === this.user.id;
+      const restricted = this.user.role === 'soporte' && ['admin', 'soporte'].includes(user.role);
       return `
         <article class="user-card ${user.active ? '' : 'user-card-inactive'}" data-user-id="${user.id}">
           <div class="user-card-status">
             <span class="role-dot role-${user.role}"></span>
             <strong>${escape(user.displayName)}</strong>
+            ${user.invitationPending ? '<span class="self-badge">Invitación pendiente</span>' : ''}
             ${isSelf ? '<span class="self-badge">Tu cuenta</span>' : ''}
           </div>
           <div class="user-edit-grid">
             <label>Nombre<input data-field="displayName" type="text" maxlength="100" value="${escape(user.displayName)}" /></label>
             <label>Usuario<input data-field="username" type="text" maxlength="32" value="${escape(user.username)}" /></label>
+            <label>Correo<input data-field="email" type="email" maxlength="254" value="${escape(user.email)}" ${!this.isAdmin() && user.email ? 'disabled' : ''} /></label>
             <label>Permiso
               <select data-field="role" ${isSelf ? 'disabled' : ''}>
-                <option value="lector" ${user.role === 'lector' ? 'selected' : ''}>Solo lectura</option>
-                <option value="editor" ${user.role === 'editor' ? 'selected' : ''}>Puede editar</option>
-                <option value="admin" ${user.role === 'admin' ? 'selected' : ''}>Administrador</option>
+                ${Object.entries(window.DentalPermissions.labels).map(([role, label]) => `<option value="${role}" ${user.role === role ? 'selected' : ''} ${this.user.role === 'soporte' && ['admin', 'soporte'].includes(role) ? 'disabled' : ''}>${escape(label)}</option>`).join('')}
               </select>
             </label>
             <label class="active-toggle"><input data-field="active" type="checkbox" ${user.active ? 'checked' : ''} ${isSelf ? 'disabled' : ''} /> Cuenta activa</label>
           </div>
           <div class="user-card-actions">
-            <button type="button" class="btn-user-save">Guardar cambios</button>
-            <button type="button" class="btn-user-reset" ${isSelf ? 'disabled' : ''}>Restablecer contraseña</button>
-            <button type="button" class="btn-user-delete" ${isSelf ? 'disabled' : ''}>Eliminar</button>
+            <button type="button" class="btn-user-save" ${restricted ? 'disabled' : ''}>Guardar cambios</button>
+            <button type="button" class="btn-user-reset" ${isSelf || restricted ? 'disabled' : ''}>Enviar enlace</button>
+            <button type="button" class="btn-user-delete" ${isSelf || restricted ? 'disabled' : ''}>Eliminar</button>
           </div>
         </article>
       `;
@@ -452,18 +458,18 @@ class AuthManager {
     const values = new FormData(form);
     this.setFormBusy(form, true, 'Creando...');
     try {
-      await window.apiClient.request('/api/users', {
+      const created = await window.apiClient.request('/api/users', {
         method: 'POST',
         body: {
           displayName: String(values.get('displayName') || ''),
           username: String(values.get('username') || ''),
           role: String(values.get('role') || 'lector'),
-          password: String(values.get('password') || '')
+          email: String(values.get('email') || '')
         }
       });
       form.reset();
       await this.loadUsers();
-      this.notify('Usuario creado con contraseña temporal.');
+      this.notify(created.invitationSent ? 'Cuenta creada. El correo fue aceptado por el servidor de envío.' : created.deliveryError, created.invitationSent ? 'success' : 'error');
     } catch (error) {
       this.notify(error.message, 'error');
     } finally {
@@ -475,6 +481,7 @@ class AuthManager {
     const body = {
       displayName: card.querySelector('[data-field="displayName"]').value,
       username: card.querySelector('[data-field="username"]').value,
+      ...(card.querySelector('[data-field="email"]').value ? { email: card.querySelector('[data-field="email"]').value } : {}),
       role: card.querySelector('[data-field="role"]').value,
       active: card.querySelector('[data-field="active"]').checked
     };
@@ -499,27 +506,22 @@ class AuthManager {
     form.userId.value = String(userId);
     document.getElementById('reset-password-user-name').textContent = user.displayName;
     this.openModal('modal-reset-password');
-    form.password.focus();
+    form.querySelector('button[type="submit"]').focus();
   }
 
   async resetPassword(event) {
     event.preventDefault();
     const form = event.currentTarget;
     const values = new FormData(form);
-    const password = String(values.get('password') || '');
-    if (password !== String(values.get('confirmPassword') || '')) {
-      this.notify('Las contraseñas no coinciden.', 'error');
-      return;
-    }
     this.setFormBusy(form, true, 'Restableciendo...');
     try {
-      await window.apiClient.request(`/api/users/${Number(values.get('userId'))}/reset-password`, {
+      const result = await window.apiClient.request(`/api/users/${Number(values.get('userId'))}/reset-password`, {
         method: 'POST',
-        body: { password }
+        body: {}
       });
       this.closeModal('modal-reset-password');
       await this.loadUsers();
-      this.notify('Contraseña temporal asignada. Las sesiones anteriores fueron cerradas.');
+      this.notify(result.invitationSent ? 'Enlace enviado al correo registrado.' : result.deliveryError, result.invitationSent ? 'success' : 'error');
     } catch (error) {
       this.notify(error.message, 'error');
     } finally {
@@ -541,6 +543,11 @@ class AuthManager {
   }
 
   notify(message, type = 'success') {
+    if (!document.getElementById('modal-usuarios').classList.contains('hidden')) {
+      const status = document.getElementById('users-message');
+      status.hidden = false; status.textContent = message; status.dataset.type = type;
+      return;
+    }
     if (window.app?.showToast) {
       window.app.showToast(message, type);
       return;

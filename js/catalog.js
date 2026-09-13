@@ -1,0 +1,105 @@
+/** Catálogo y selector de procedimientos de una consulta. */
+class CatalogManager {
+  constructor() {
+    this.items = [];
+    this.lines = [];
+    for (const id of ['btn-catalogo', 'btn-catalogo-local']) document.getElementById(id)?.addEventListener('click', () => this.open());
+    document.getElementById('btn-close-catalogo').addEventListener('click', () => window.authManager.closeModal('modal-catalogo'));
+    document.getElementById('btn-new-catalogo').addEventListener('click', () => this.resetForm());
+    document.getElementById('form-catalogo').addEventListener('submit', event => this.save(event));
+    document.getElementById('form-catalogo').tipo.addEventListener('change', () => this.priceState());
+    document.getElementById('btn-add-procedimiento').addEventListener('click', () => {
+      const first = this.items.find(item => item.tipo === 'procedimiento' && item.activo);
+      if (!first) return;
+      this.lines.push({ procedimientoId: first.id, diagnosticoId: null, cantidad: 1, precio: first.precioCentavos / 100 });
+      this.renderLines();
+    });
+  }
+  allowed(permission) { return window.authManager.hasPermission(permission); }
+  async load() { this.items = await window.odontoDB.getCatalogo(); }
+  priceState() {
+    const form = document.getElementById('form-catalogo');
+    form.precio.disabled = form.tipo.value !== 'procedimiento' || !this.allowed('prices.write');
+  }
+  resetForm() { const form = document.getElementById('form-catalogo'); form.reset(); form.elements.namedItem('id').value = ''; form.tipo.disabled = false; this.priceState(); }
+  async open() {
+    window.authManager.closeUserMenu();
+    window.authManager.openModal('modal-catalogo');
+    document.getElementById('form-catalogo').hidden = !this.allowed('catalog.write');
+    this.resetForm();
+    try { await this.load(); this.renderCatalog(); }
+    catch (error) { document.getElementById('catalog-message').textContent = error.message; }
+  }
+  renderCatalog() {
+    const list = document.getElementById('catalog-list');
+    const escape = window.escapeHTML;
+    list.innerHTML = this.items.length ? this.items.map(item => `<article class="catalog-entry"><div><strong>${escape(item.nombre)}</strong><small>${item.tipo === 'diagnostico' ? 'Diagnóstico' : `Procedimiento · $${(item.precioCentavos / 100).toFixed(2)}`} · ${item.activo ? 'Disponible' : 'Inactivo'}</small></div>${this.allowed('catalog.write') ? `<button type="button" data-id="${item.id}" class="secondary-button">Editar</button>` : ''}</article>`).join('') : '<p>No hay elementos. Un administrador o doctor puede crear diagnósticos y procedimientos.</p>';
+    list.querySelectorAll('button').forEach(button => button.addEventListener('click', () => {
+      const item = this.items.find(item => item.id === Number(button.dataset.id));
+      const form = document.getElementById('form-catalogo');
+      form.elements.namedItem('id').value = item.id; form.tipo.value = item.tipo; form.tipo.disabled = true;
+      form.nombre.value = item.nombre; form.precio.value = (item.precioCentavos / 100).toFixed(2); form.activo.checked = item.activo;
+      this.priceState(); form.nombre.focus();
+    }));
+  }
+  async save(event) {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const button = form.querySelector('button[type="submit"]');
+    button.disabled = true;
+    try {
+      await window.odontoDB.saveCatalogo({ ...(form.elements.namedItem('id').value ? { id: Number(form.elements.namedItem('id').value) } : {}), tipo: form.tipo.value, nombre: form.nombre.value.trim(), precio: Number(form.precio.value), activo: form.activo.checked });
+      await this.load(); this.renderCatalog(); this.resetForm();
+      document.getElementById('catalog-message').textContent = 'Catálogo actualizado.';
+    } catch (error) { document.getElementById('catalog-message').textContent = error.message; }
+    finally { button.disabled = false; }
+  }
+  async prepareConsultation() {
+    this.lines = []; this.renderLines();
+    const status = document.getElementById('consulta-catalog-status');
+    status.textContent = 'Cargando catálogo…';
+    document.getElementById('btn-add-procedimiento').disabled = true;
+    try {
+      await this.load();
+      const available = this.items.some(item => item.tipo === 'procedimiento' && item.activo);
+      document.getElementById('btn-add-procedimiento').disabled = !available;
+      status.textContent = available ? '' : 'Todavía no hay procedimientos disponibles. Solicita su registro en Catálogo y precios.';
+    } catch (error) { status.textContent = error.message; }
+  }
+  renderLines() {
+    const escape = window.escapeHTML;
+    const list = document.getElementById('consulta-procedimientos');
+    list.innerHTML = this.lines.map((line, index) => `<div class="procedure-line" data-index="${index}">
+      <label>Procedimiento<select data-field="procedimientoId">${this.items.filter(item => item.tipo === 'procedimiento' && item.activo).map(item => `<option value="${item.id}" ${item.id === line.procedimientoId ? 'selected' : ''}>${escape(item.nombre)}</option>`).join('')}</select></label>
+      <label>Diagnóstico asociado<select data-field="diagnosticoId"><option value="">Sin asociar</option>${this.items.filter(item => item.tipo === 'diagnostico' && item.activo).map(item => `<option value="${item.id}" ${item.id === line.diagnosticoId ? 'selected' : ''}>${escape(item.nombre)}</option>`).join('')}</select></label>
+      <label>Cantidad<input data-field="cantidad" type="number" min="1" max="100" step="1" required value="${line.cantidad}"></label>
+      <label>Precio unitario ($)<input data-field="precio" type="number" min="0" max="10000000" step="0.01" required value="${line.precio}" ${this.allowed('prices.write') ? '' : 'readonly'}></label>
+      <strong class="line-subtotal"></strong><button type="button" class="secondary-button">Quitar</button>
+    </div>`).join('');
+    list.querySelectorAll('.procedure-line').forEach(row => {
+      const index = Number(row.dataset.index);
+      row.querySelectorAll('[data-field]').forEach(input => input.addEventListener('input', () => {
+        this.lines[index][input.dataset.field] = input.value === '' && input.dataset.field === 'diagnosticoId' ? null : Number(input.value);
+        if (input.dataset.field === 'procedimientoId') {
+          this.lines[index].precio = this.items.find(item => item.id === Number(input.value)).precioCentavos / 100;
+          row.querySelector('[data-field="precio"]').value = this.lines[index].precio;
+        }
+        this.updateTotal();
+      }));
+      row.querySelector('button').addEventListener('click', () => { this.lines.splice(index, 1); this.renderLines(); });
+    });
+    this.updateTotal();
+  }
+  updateTotal() {
+    let total = 0;
+    document.querySelectorAll('.procedure-line').forEach((row, index) => {
+      const line = this.lines[index];
+      const subtotal = Math.round(line.precio * 100) * line.cantidad;
+      total += subtotal;
+      row.querySelector('.line-subtotal').textContent = `Subtotal: $${(subtotal / 100).toFixed(2)}`;
+    });
+    document.getElementById('form-consulta').costo.value = (total / 100).toFixed(2);
+  }
+  getLines() { return this.lines.map(line => ({ ...line })); }
+}
+window.addEventListener('DOMContentLoaded', () => { window.catalogManager = new CatalogManager(); });

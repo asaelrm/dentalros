@@ -1,0 +1,123 @@
+'use strict';
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const { createServer } = require('../server');
+const { createHash } = require('node:crypto');
+const { mailConfiguration } = require('../server/mail');
+
+async function fixture(t) {
+  const mails = [];
+  let failMail = false;
+  const server = createServer({ dbPath: ':memory:', cookieSecure: false, mailer: { baseUrl: 'https://clinic.example/', send: async message => { if (failMail) throw new Error('SMTP unavailable'); mails.push(message); } } });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise(resolve => server.close(resolve)));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  const request = async (path, method = 'GET', body, cookie) => {
+    const response = await fetch(url + path, { method, headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}) }, ...(body ? { body: JSON.stringify(body) } : {}) });
+    return { status: response.status, data: await response.json(), cookie: response.headers.get('set-cookie')?.split(';')[0] };
+  };
+  const setup = await request('/api/setup', 'POST', { username: 'admin', displayName: 'Administración', password: 'Administrador123!' });
+  const admin = setup.cookie;
+  const token = () => new URLSearchParams(new URL(mails.at(-1).url).hash.slice(1)).get('invite');
+  const invite = (role, username = role) => request('/api/users', 'POST', { username, displayName: username, role, email: `${username}@example.test` }, admin);
+  const activate = password => request('/api/auth/accept-invitation', 'POST', { token: token(), password: password || 'PrivadaPersonal123!' });
+  const login = username => request('/api/auth/login', 'POST', { username, password: 'PrivadaPersonal123!' });
+  return { server, request, admin, mails, token, invite, activate, login, fail: value => { failMail = value; } };
+}
+
+test('Invitaciones: privacidad, expiración, uso único, reenvío y errores SMTP', async t => {
+  const f = await fixture(t);
+  assert.equal((await f.request('/api/users', 'POST', { username: 'inseguro', displayName: 'No', role: 'doctor', password: 'NoDebePermitirse123!' }, f.admin)).status, 400);
+  const user = await f.invite('doctor');
+  assert.equal(user.status, 201);
+  assert.equal(user.data.invitationPending, true);
+  assert.equal(user.data.invitationSent, true);
+  assert.equal((await f.login('doctor')).status, 401);
+  const token = f.token();
+  assert.equal(new URL(f.mails[0].url).pathname, '/activar.html');
+  assert.ok(!JSON.stringify(user.data).includes(token));
+  const stored = f.server.database.prepare('SELECT * FROM invitations').get();
+  assert.equal(stored.token_hash, createHash('sha256').update(token).digest('hex'));
+  assert.ok(!JSON.stringify(stored).includes(token));
+  assert.equal((await f.activate('corta')).status, 400);
+  assert.equal((await f.activate()).status, 200);
+  assert.equal((await f.activate()).status, 400);
+  const logged = await f.login('doctor');
+  assert.equal(logged.status, 200);
+  assert.equal(logged.data.user.invitationPending, false);
+  assert.equal(logged.data.user.mustChangePassword, false);
+  await f.request(`/api/users/${user.data.id}/reset-password`, 'POST', {}, f.admin);
+  const expired = f.token();
+  f.server.database.prepare('UPDATE invitations SET expires_at = 0').run();
+  assert.equal((await f.activate()).status, 400);
+  await f.request(`/api/users/${user.data.id}/reset-password`, 'POST', {}, f.admin);
+  assert.notEqual(f.token(), expired);
+  assert.equal((await f.activate()).status, 200);
+  assert.equal((await f.request('/api/auth/me', 'GET', undefined, logged.cookie)).status, 401);
+  f.fail(true);
+  const failed = await f.invite('auxiliar');
+  assert.equal(failed.status, 201);
+  assert.equal(failed.data.invitationSent, false);
+  assert.equal(f.server.database.prepare('SELECT count(*) AS n FROM invitations').get().n, 0);
+  f.fail(false);
+  assert.equal((await f.request(`/api/users/${failed.data.id}/reset-password`, 'POST', {}, f.admin)).data.invitationSent, true);
+  await f.request(`/api/users/${failed.data.id}`, 'PUT', { active: false }, f.admin);
+  assert.equal((await f.activate()).status, 400);
+  assert.doesNotMatch(JSON.stringify(f.server.database.prepare('SELECT * FROM audit_logs').all()), new RegExp(token));
+});
+
+test('Roles, precios no manipulables, cantidades, historial y respaldos del catálogo', async t => {
+  const f = await fixture(t);
+  const sessions = {};
+  const users = {};
+  for (const role of ['doctor', 'secretaria', 'auxiliar', 'soporte']) {
+    users[role] = (await f.invite(role)).data;
+    await f.activate(); sessions[role] = (await f.login(role)).cookie;
+  }
+  for (const path of ['/api/pacientes', '/api/config', '/api/catalogo', '/api/backup']) assert.equal((await f.request(path, 'GET', undefined, sessions.soporte)).status, 403);
+  assert.equal((await f.request('/api/users', 'GET', undefined, sessions.soporte)).status, 200);
+  assert.equal((await f.request('/api/users/1/reset-password', 'POST', {}, sessions.soporte)).status, 403);
+  assert.equal((await f.request(`/api/users/${users.doctor.id}`, 'PUT', { role: 'admin' }, sessions.soporte)).status, 403);
+  assert.equal((await f.request(`/api/users/${users.doctor.id}`, 'PUT', { email: 'intruso@example.test' }, sessions.soporte)).status, 403);
+  const diagnosis = await f.request('/api/catalogo', 'POST', { tipo: 'diagnostico', nombre: 'Diagnóstico de prueba' }, sessions.doctor);
+  assert.equal(diagnosis.status, 201);
+  const procedure = await f.request('/api/catalogo', 'POST', { tipo: 'procedimiento', nombre: 'Procedimiento de prueba', precio: 12.35 }, sessions.doctor);
+  assert.equal(procedure.status, 201);
+  for (const role of ['secretaria', 'auxiliar']) assert.equal((await f.request('/api/catalogo', 'POST', { tipo: 'procedimiento', nombre: 'No', precio: 1 }, sessions[role])).status, 403);
+  const patient = await f.request('/api/pacientes', 'POST', { nombre: 'Paciente', apellido: 'Prueba' }, sessions.secretaria);
+  assert.equal(patient.status, 201);
+  const patientId = patient.data.id;
+  assert.equal((await f.request(`/api/pacientes/${patientId}/historia`, 'PUT', { diagnosticoGeneral: 'No permitido' }, sessions.secretaria)).status, 403);
+  assert.equal((await f.request(`/api/pacientes/${patientId}/consultas`, 'POST', { procedimientos: [] }, sessions.auxiliar)).status, 403);
+  const line = { procedimientoId: procedure.data.id, diagnosticoId: diagnosis.data.id, cantidad: 3 };
+  const visitPath = `/api/pacientes/${patientId}/consultas`;
+  assert.equal((await f.request(visitPath, 'POST', { procedimientos: [{ ...line, precio: 0.01 }] }, sessions.secretaria)).status, 400);
+  assert.equal((await f.request(visitPath, 'POST', { procedimientos: [{ ...line, cantidad: 1.5 }] }, sessions.doctor)).status, 400);
+  const visit = await f.request(visitPath, 'POST', { procedimientos: [line, { ...line, cantidad: 2 }], costo: 0.01 }, sessions.secretaria);
+  assert.equal(visit.status, 201);
+  assert.equal(visit.data.costo, 61.75);
+  assert.equal(visit.data.procedimientos[0].subtotalCentavos, 3705);
+  await f.request(`/api/catalogo/${procedure.data.id}`, 'PUT', { tipo: 'procedimiento', nombre: 'Nuevo nombre', precio: 50 }, sessions.doctor);
+  let history = await f.request(visitPath, 'GET', undefined, sessions.doctor);
+  assert.equal(history.data[0].costo, 61.75);
+  assert.equal(history.data[0].procedimientos[0].nombre, 'Procedimiento de prueba');
+  const changed = await f.request(`/api/consultas/${visit.data.id}`, 'PUT', { costo: 0, observaciones: 'Revisión' }, sessions.doctor);
+  assert.equal(changed.data.costo, 61.75);
+  assert.equal((await f.request(visitPath, 'POST', { procedimientos: [line] }, sessions.secretaria)).data.costo, 150);
+  const backup = (await f.request('/api/backup', 'GET', undefined, f.admin)).data;
+  assert.equal(backup.catalogo.length, 2);
+  assert.equal((await f.request('/api/backup/import', 'POST', backup, f.admin)).status, 200);
+  history = await f.request(visitPath, 'GET', undefined, sessions.doctor);
+  assert.equal(history.data.find(item => item.id === visit.data.id).costo, 61.75);
+  const invalid = structuredClone(backup);
+  invalid.consultas[0].procedimientos[0].subtotalCentavos = -1;
+  assert.equal((await f.request('/api/backup/import', 'POST', invalid, f.admin)).status, 400);
+  assert.equal((await f.request('/api/catalogo', 'GET', undefined, sessions.doctor)).data.length, 2);
+});
+
+test('Configuración SMTP exige origen válido y TLS', () => {
+  assert.throws(() => mailConfiguration({}), /PUBLIC_URL/);
+  const env = { PUBLIC_URL: 'https://clinic.example', SMTP_HOST: 'smtp.example', SMTP_USER: 'usuario', SMTP_PASSWORD: 'secreto', SMTP_FROM: 'clinica@example.test' };
+  assert.equal(mailConfiguration(env).transport.requireTLS, true);
+  assert.throws(() => mailConfiguration({ ...env, PUBLIC_URL: 'http://clinic.example' }), /HTTPS/);
+});

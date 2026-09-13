@@ -18,14 +18,18 @@ const {
   writeAudit
 } = require('./server/database');
 
+const permissions = require('./js/permissions');
+const billing = require('./js/billing');
+const { createInvitationMailer } = require('./server/mail');
+
 const scryptAsync = promisify(scrypt);
 const ROOT_DIR = __dirname;
 const COOKIE_NAME = 'odontologia_session';
 const DEFAULT_BODY_LIMIT = 5 * 1024 * 1024;
 const DEFAULT_SESSION_MAX_AGE = 8 * 60 * 60;
 const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{2,31}$/;
-const ROLES = new Set(['admin', 'editor', 'lector']);
-const CLINICAL_WRITERS = new Set(['admin', 'editor']);
+const ROLES = new Set(Object.keys(permissions.labels));
+const CLINICAL_WRITERS = new Set(['admin', 'editor', 'doctor']);
 const DUMMY_SALT = randomBytes(16);
 const DUMMY_HASH = scryptSync('credencial-inexistente', DUMMY_SALT, 64);
 
@@ -270,7 +274,9 @@ function publicUser(row) {
     id: Number(row.id),
     username: row.username,
     displayName: row.display_name,
-    role: row.role,
+    role: row.professional_role || row.role,
+    email: row.email || '',
+    invitationPending: Boolean(row.invitation_pending),
     active: Boolean(row.active),
     mustChangePassword: Boolean(row.must_change_password),
     createdAt: row.created_at,
@@ -319,7 +325,7 @@ function authenticate(req, db) {
     WHERE s.token_hash = ?
       AND s.revoked_at IS NULL
       AND s.expires_at > ?
-      AND u.active = 1
+      AND u.active = 1 AND u.invitation_pending = 0
   `).get(tokenHash, Date.now());
   if (!row) return null;
   return { row, user: publicUser(row), tokenHash };
@@ -444,7 +450,8 @@ function getBackup(db) {
     historias: db.prepare('SELECT paciente_id, data FROM historias ORDER BY paciente_id').all().map(historyFromRow),
     consultas: db.prepare('SELECT id, paciente_id, data FROM consultas ORDER BY id').all().map(consultationFromRow),
     odontogramas: db.prepare('SELECT paciente_id, data FROM odontogramas ORDER BY paciente_id').all().map(odontogramFromRow),
-    config: getConfig(db)
+    config: getConfig(db),
+    catalogo: getCatalog(db)
   };
 }
 
@@ -541,7 +548,19 @@ function normalizeBackup(body) {
     config = { ...cleanData(rawConfig, ['id']), id: DEFAULT_CONFIG.id };
   }
 
-  return { pacientes, historias, consultas, odontogramas, config };
+  let catalogo = null;
+  if (body.catalogo !== undefined) {
+    if (!Array.isArray(body.catalogo) || body.catalogo.length > 10000) throw new HttpError(400, 'Catálogo inválido en el respaldo.');
+    catalogo = body.catalogo.map(item => ({ id: positiveId(item.id, 'ID de catálogo'), ...billing.catalogItem({ ...item, precio: item.precioCentavos / 100 }) }));
+    ensureUnique(catalogo, item => item.id, 'catalogo');
+  }
+  for (const item of consultas) {
+    if (item.data.procedimientos !== undefined) {
+      billing.validateSnapshot(item.data.procedimientos);
+      item.data.costo = billing.total(item.data.procedimientos);
+    }
+  }
+  return { pacientes, historias, consultas, odontogramas, config, catalogo };
 }
 
 function importBackup(db, backup, actorId) {
@@ -569,6 +588,11 @@ function importBackup(db, backup, actorId) {
       db.prepare('INSERT OR REPLACE INTO configuracion (id, data) VALUES (?, ?)')
         .run(DEFAULT_CONFIG.id, JSON.stringify(backup.config));
     }
+    if (backup.catalogo) {
+      db.exec('DELETE FROM catalogo;');
+      const insert = db.prepare('INSERT INTO catalogo (id, tipo, nombre, precio_centavos, activo) VALUES (?, ?, ?, ?, ?)');
+      for (const item of backup.catalogo) insert.run(item.id, item.tipo, item.nombre, item.precioCentavos, Number(item.activo));
+    }
     writeAudit(db, actorId, 'backup_import', 'backup', null, {
       pacientes: backup.pacientes.length,
       historias: backup.historias.length,
@@ -583,6 +607,7 @@ function isKnownProtectedPath(pathname) {
     pathname === '/api/auth/logout' ||
     pathname === '/api/auth/change-password' ||
     pathname === '/api/users' ||
+    pathname === '/api/catalogo' || /^\/api\/catalogo\/\d+$/.test(pathname) ||
     /^\/api\/users\/\d+(?:\/reset-password)?$/.test(pathname) ||
     pathname === '/api/pacientes' ||
     /^\/api\/pacientes\/\d+(?:\/(?:historia|consultas|odontograma))?$/.test(pathname) ||
@@ -592,9 +617,106 @@ function isKnownProtectedPath(pathname) {
     pathname === '/api/backup/import';
 }
 
+function requirePermission(auth, permission) {
+  if (!permissions.has(auth.user.role, permission)) throw new HttpError(403, 'No tienes permiso para esta acción.');
+}
+function requireUserManager(auth) { requirePermission(auth, 'users.manage'); }
+function canManageTarget(auth, target) {
+  if (auth.user.role === 'soporte' && ['admin', 'soporte'].includes(target.role)) throw new HttpError(403, 'Soporte no puede administrar cuentas de administrador ni de soporte.');
+}
+function validateEmail(value) {
+  if (typeof value !== 'string' || value.length > 254 || !/^[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+$/.test(value)) throw new HttpError(400, 'Indica un correo electrónico válido.');
+  return value.trim().toLowerCase();
+}
+function invitationMailer(context) {
+  try { return context.mailer || createInvitationMailer(); }
+  catch (error) { throw new HttpError(503, error.message); }
+}
+async function deliverInvitation(db, userId, actorId, mailer) {
+  const user = getUserRow(db, userId);
+  const token = randomBytes(32).toString('base64url');
+  const tokenHash = hashToken(token);
+  const url = new URL(mailer.baseUrl);
+  url.pathname = url.pathname.replace(/\/$/, '') + '/activar.html';
+  url.hash = `invite=${token}`;
+  db.prepare('INSERT OR REPLACE INTO invitations (token_hash, user_id, expires_at, created_at) VALUES (?, ?, ?, ?)')
+    .run(tokenHash, userId, Date.now() + 24 * 60 * 60 * 1000, nowIso());
+  try {
+    await mailer.send({ email: user.email, username: user.username, displayName: user.display_name, url: url.href });
+    writeAudit(db, actorId, 'invitation_sent', 'user', userId);
+    return { invitationSent: true };
+  } catch {
+    db.prepare('DELETE FROM invitations WHERE token_hash = ?').run(tokenHash);
+    writeAudit(db, actorId, 'invitation_failed', 'user', userId);
+    return { invitationSent: false, deliveryError: 'La cuenta existe, pero no se pudo enviar el correo. Revisa SMTP y utiliza Enviar enlace otra vez.' };
+  }
+}
+function getCatalog(db) {
+  return db.prepare('SELECT * FROM catalogo ORDER BY tipo, nombre, id').all().map(row => ({ id: Number(row.id), tipo: row.tipo, nombre: row.nombre, precioCentavos: Number(row.precio_centavos), activo: Boolean(row.activo) }));
+}
+async function handleCatalog(req, res, pathname, context, auth) {
+  const { db, bodyLimit } = context;
+  const match = pathname.match(/^\/api\/catalogo(?:\/(\d+))?$/);
+  if (!match) return false;
+  if (req.method === 'GET' && !match[1]) { sendJson(res, 200, getCatalog(db)); return true; }
+  requirePermission(auth, 'catalog.write');
+  if (!['POST', 'PUT'].includes(req.method) || (req.method === 'POST' && match[1]) || (req.method === 'PUT' && !match[1])) throw new HttpError(404, 'Endpoint no encontrado.');
+  const item = billing.catalogItem(requireObject(await readJsonBody(req, bodyLimit)));
+  if (item.tipo === 'procedimiento') requirePermission(auth, 'prices.write');
+  let id = match[1] ? positiveId(match[1], 'ID de catálogo') : null;
+  if (id) {
+    const previous = db.prepare('SELECT tipo FROM catalogo WHERE id = ?').get(id);
+    if (!previous) throw new HttpError(404, 'Elemento no encontrado.');
+    if (previous.tipo !== item.tipo) throw new HttpError(400, 'No se puede cambiar el tipo de un elemento existente.');
+  }
+  runTransaction(db, () => {
+    if (id) db.prepare('UPDATE catalogo SET nombre = ?, precio_centavos = ?, activo = ? WHERE id = ?').run(item.nombre, item.precioCentavos, Number(item.activo), id);
+    else id = Number(db.prepare('INSERT INTO catalogo (tipo, nombre, precio_centavos, activo) VALUES (?, ?, ?, ?)').run(item.tipo, item.nombre, item.precioCentavos, Number(item.activo)).lastInsertRowid);
+    writeAudit(db, auth.user.id, 'catalog_save', 'catalogo', id);
+  });
+  sendJson(res, req.method === 'POST' ? 201 : 200, { ...item, id });
+  return true;
+}
+function pricedConsultation(db, auth, incoming, previous = {}) {
+  if (!permissions.has(auth.user.role, 'clinical.write')) {
+    for (const field of ['motivo', 'diagnostico', 'tratamiento', 'receta', 'observaciones', 'proximaCita']) {
+      if (Object.hasOwn(incoming, field) && incoming[field] !== previous[field] && incoming[field] !== '') throw new HttpError(403, 'Solo el personal clínico autorizado puede registrar diagnósticos y notas clínicas.');
+      delete incoming[field];
+    }
+  }
+  if (Object.hasOwn(incoming, 'procedimientos')) {
+    incoming.procedimientos = billing.lines(incoming.procedimientos, getCatalog(db), permissions.has(auth.user.role, 'prices.write'), previous.procedimientos || []);
+    incoming.costo = billing.total(incoming.procedimientos);
+  } else if (previous.procedimientos) {
+    incoming.costo = billing.total(previous.procedimientos);
+  } else if (Object.hasOwn(incoming, 'costo') && !permissions.has(auth.user.role, 'clinical.write')) {
+    throw new HttpError(403, 'Selecciona procedimientos del catálogo para calcular el importe.');
+  }
+  return incoming;
+}
+
 async function handleApi(req, res, pathname, context) {
   const { db, bodyLimit, sessionMaxAge, cookieSecure } = context;
   const method = req.method;
+
+  if (pathname === '/api/auth/accept-invitation' && method === 'POST') {
+    const body = requireObject(await readJsonBody(req, bodyLimit));
+    if (typeof body.token !== 'string' || !/^[A-Za-z0-9_-]{43}$/.test(body.token)) throw new HttpError(400, 'El enlace no es válido o ha vencido. Solicita otro enlace.');
+    const tokenHash = hashToken(body.token);
+    const find = () => db.prepare('SELECT i.*, u.active FROM invitations i JOIN users u ON u.id = i.user_id WHERE token_hash = ? AND expires_at > ?').get(tokenHash, Date.now());
+    const invitation = find();
+    if (!invitation || !invitation.active) throw new HttpError(400, 'El enlace no es válido o ha vencido. Solicita otro enlace.');
+    const record = await createPasswordRecord(validatePassword(body.password));
+    runTransaction(db, () => {
+      const current = find();
+      if (!current || !current.active) throw new HttpError(400, 'El enlace no es válido o ha vencido. Solicita otro enlace.');
+      db.prepare('UPDATE users SET password_hash = ?, password_salt = ?, must_change_password = 0, invitation_pending = 0, updated_at = ? WHERE id = ?').run(record.hash, record.salt, nowIso(), current.user_id);
+      db.prepare('DELETE FROM invitations WHERE user_id = ?').run(current.user_id);
+      db.prepare('DELETE FROM sessions WHERE user_id = ?').run(current.user_id);
+      writeAudit(db, current.user_id, 'invitation_accepted', 'user', current.user_id);
+    });
+    return sendJson(res, 200, { success: true });
+  }
 
   if (pathname === '/api/setup-status' && method === 'GET') {
     const row = db.prepare('SELECT COUNT(*) AS count FROM users').get();
@@ -645,7 +767,7 @@ async function handleApi(req, res, pathname, context) {
     const candidate = passwordValid ? body.password : 'credencial-inexistente';
     const matches = await passwordMatches(candidate, salt, expectedHash);
 
-    if (!row || !row.active || !passwordValid || !matches) {
+    if (!row || !row.active || row.invitation_pending || !passwordValid || !matches) {
       writeAudit(db, row ? Number(row.id) : null, 'login_failed', 'auth', null, {
         username: rawUsername.slice(0, 32)
       });
@@ -717,76 +839,65 @@ async function handleApi(req, res, pathname, context) {
   }
 
   if (pathname === '/api/users' && method === 'GET') {
-    requireAdmin(auth);
+    requireUserManager(auth);
     const users = db.prepare('SELECT * FROM users ORDER BY id').all().map(publicUser);
     return sendJson(res, 200, users);
   }
 
   if (pathname === '/api/users' && method === 'POST') {
-    requireAdmin(auth);
+    requireUserManager(auth);
     const body = requireObject(await readJsonBody(req, bodyLimit));
+    if (Object.hasOwn(body, 'password')) throw new HttpError(400, 'La contraseña la establece el destinatario desde su correo.');
     const username = normalizeUsername(body.username);
     const displayName = validateDisplayName(body.displayName);
     const role = validateRole(body.role);
-    const password = validatePassword(body.password);
-    if (db.prepare('SELECT 1 FROM users WHERE username = ?').get(username)) {
-      throw new HttpError(409, 'El username ya esta en uso.');
-    }
-    const passwordRecord = await createPasswordRecord(password);
-    const createdAt = nowIso();
-    let userId;
+    canManageTarget(auth, { role });
+    const email = validateEmail(body.email);
+    const mailer = invitationMailer(context);
+    if (db.prepare('SELECT 1 FROM users WHERE username = ? OR email = ?').get(username, email)) throw new HttpError(409, 'El usuario o correo ya está en uso.');
+    const record = await createPasswordRecord(randomBytes(48).toString('base64url'));
+    let id;
     try {
-      userId = runTransaction(db, () => {
-        const result = db.prepare(`
-          INSERT INTO users (
-            username, display_name, role, password_hash, password_salt,
-            active, must_change_password, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 1, 1, ?, ?)
-        `).run(username, displayName, role, passwordRecord.hash, passwordRecord.salt, createdAt, createdAt);
-        const id = Number(result.lastInsertRowid);
-        writeAudit(db, auth.user.id, 'user_create', 'user', id, { username, role });
-        return id;
+      id = runTransaction(db, () => {
+        const result = db.prepare(`INSERT INTO users
+          (username, display_name, role, professional_role, email, password_hash, password_salt, active, must_change_password, invitation_pending, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 1, 0, 1, ?, ?)`)
+          .run(username, displayName, permissions.baseRole(role), role, email, record.hash, record.salt, nowIso(), nowIso());
+        writeAudit(db, auth.user.id, 'user_create', 'user', Number(result.lastInsertRowid), { username, role });
+        return Number(result.lastInsertRowid);
       });
     } catch (error) {
-      if (String(error.message).includes('UNIQUE constraint failed')) {
-        throw new HttpError(409, 'El username ya esta en uso.');
-      }
+      if (String(error.message).includes('UNIQUE')) throw new HttpError(409, 'El usuario o correo ya está en uso.');
       throw error;
     }
-    return sendJson(res, 201, publicUser(getUserRow(db, userId)));
+    const delivery = await deliverInvitation(db, id, auth.user.id, mailer);
+    return sendJson(res, 201, { ...publicUser(getUserRow(db, id)), ...delivery });
   }
 
   const userResetMatch = pathname.match(/^\/api\/users\/(\d+)\/reset-password$/);
   if (userResetMatch && method === 'POST') {
-    requireAdmin(auth);
+    requireUserManager(auth);
     const userId = positiveId(userResetMatch[1], 'ID de usuario');
-    if (!getUserRow(db, userId)) throw new HttpError(404, 'Usuario no encontrado.');
+    const target = getUserRow(db, userId);
+    if (!target) throw new HttpError(404, 'Usuario no encontrado.');
+    canManageTarget(auth, publicUser(target));
+    if (!target.active) throw new HttpError(409, 'Activa la cuenta antes de enviar un enlace.');
     const body = requireObject(await readJsonBody(req, bodyLimit));
-    const password = validatePassword(body.password);
-    const passwordRecord = await createPasswordRecord(password);
-    runTransaction(db, () => {
-      if (!getUserRow(db, userId)) throw new HttpError(404, 'Usuario no encontrado.');
-      db.prepare(`
-        UPDATE users
-        SET password_hash = ?, password_salt = ?, must_change_password = 1, updated_at = ?
-        WHERE id = ?
-      `).run(passwordRecord.hash, passwordRecord.salt, nowIso(), userId);
-      db.prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL')
-        .run(nowIso(), userId);
-      writeAudit(db, auth.user.id, 'password_reset', 'user', userId);
-    });
-    if (userId === auth.user.id) clearSessionCookie(res, cookieSecure);
-    return sendJson(res, 200, publicUser(getUserRow(db, userId)));
+    if (Object.hasOwn(body, 'password')) throw new HttpError(400, 'La contraseña la establece el destinatario desde su correo.');
+    validateEmail(target.email);
+    const delivery = await deliverInvitation(db, userId, auth.user.id, invitationMailer(context));
+    return sendJson(res, 200, { ...publicUser(getUserRow(db, userId)), ...delivery });
   }
 
   const userMatch = pathname.match(/^\/api\/users\/(\d+)$/);
   if (userMatch && method === 'PUT') {
-    requireAdmin(auth);
+    requireUserManager(auth);
     const userId = positiveId(userMatch[1], 'ID de usuario');
     const current = getUserRow(db, userId);
     if (!current) throw new HttpError(404, 'Usuario no encontrado.');
     const body = requireObject(await readJsonBody(req, bodyLimit));
-    const allowedFields = ['username', 'displayName', 'role', 'active'];
+    canManageTarget(auth, publicUser(current));
+    const allowedFields = ['username', 'displayName', 'role', 'active', 'email'];
     if (!allowedFields.some((field) => Object.hasOwn(body, field))) {
       throw new HttpError(400, 'Debes indicar al menos un campo para actualizar.');
     }
@@ -798,7 +909,10 @@ async function handleApi(req, res, pathname, context) {
     const displayName = Object.hasOwn(body, 'displayName')
       ? validateDisplayName(body.displayName)
       : current.display_name;
-    const role = Object.hasOwn(body, 'role') ? validateRole(body.role) : current.role;
+    const role = Object.hasOwn(body, 'role') ? validateRole(body.role) : (current.professional_role || current.role);
+    canManageTarget(auth, { role });
+    const email = Object.hasOwn(body, 'email') ? validateEmail(body.email) : current.email;
+    if (current.email && email !== current.email && auth.user.role !== 'admin') throw new HttpError(403, 'Solo el administrador puede cambiar el correo de una cuenta.');
     if (Object.hasOwn(body, 'active') && typeof body.active !== 'boolean') {
       throw new HttpError(400, 'active debe ser true o false.');
     }
@@ -807,7 +921,7 @@ async function handleApi(req, res, pathname, context) {
     if (userId === auth.user.id && !active) {
       throw new HttpError(409, 'No puedes desactivar tu propio usuario.');
     }
-    if (userId === auth.user.id && role !== 'admin') {
+    if (userId === auth.user.id && role !== auth.user.role) {
       throw new HttpError(409, 'No puedes quitarte el rol admin.');
     }
     const removesActiveAdmin = Boolean(current.active) && current.role === 'admin' && (!active || role !== 'admin');
@@ -821,9 +935,10 @@ async function handleApi(req, res, pathname, context) {
     try {
       runTransaction(db, () => {
         db.prepare(`
-          UPDATE users SET username = ?, display_name = ?, role = ?, active = ?, updated_at = ?
+          UPDATE users SET username = ?, display_name = ?, role = ?, professional_role = ?, email = ?, active = ?, updated_at = ?
           WHERE id = ?
-        `).run(username, displayName, role, active ? 1 : 0, nowIso(), userId);
+        `).run(username, displayName, permissions.baseRole(role), role, email, active ? 1 : 0, nowIso(), userId);
+        if (!active || email !== current.email) db.prepare('DELETE FROM invitations WHERE user_id = ?').run(userId);
         if (!active) {
           db.prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL')
             .run(nowIso(), userId);
@@ -840,10 +955,11 @@ async function handleApi(req, res, pathname, context) {
   }
 
   if (userMatch && method === 'DELETE') {
-    requireAdmin(auth);
+    requireUserManager(auth);
     const userId = positiveId(userMatch[1], 'ID de usuario');
     const target = getUserRow(db, userId);
     if (!target) throw new HttpError(404, 'Usuario no encontrado.');
+    canManageTarget(auth, publicUser(target));
     if (userId === auth.user.id) throw new HttpError(409, 'No puedes eliminar tu propio usuario.');
     if (target.active && target.role === 'admin') {
       const remaining = Number(db.prepare(`
@@ -863,13 +979,17 @@ async function handleApi(req, res, pathname, context) {
     return sendJson(res, 200, { success: true });
   }
 
+  if (!permissions.has(auth.user.role, 'clinical.read')) throw new HttpError(403, 'Este perfil no tiene acceso a expedientes clínicos.');
+
+  if (await handleCatalog(req, res, pathname, context, auth)) return;
+
   if (pathname === '/api/pacientes' && method === 'GET') {
     const patients = db.prepare('SELECT id, data FROM pacientes ORDER BY id').all().map(patientFromRow);
     return sendJson(res, 200, patients);
   }
 
   if (pathname === '/api/pacientes' && method === 'POST') {
-    requireRole(auth, CLINICAL_WRITERS);
+    requirePermission(auth, 'patients.write');
     const data = validatePatientInput(requireObject(await readJsonBody(req, bodyLimit)));
     const timestamp = nowIso();
     data.fechaRegistro = data.fechaRegistro || timestamp;
@@ -892,7 +1012,7 @@ async function handleApi(req, res, pathname, context) {
   }
 
   if (patientResourceMatch && method === 'PUT') {
-    requireRole(auth, CLINICAL_WRITERS);
+    requirePermission(auth, 'patients.write');
     const patientId = positiveId(patientResourceMatch[1], 'ID de paciente');
     const row = db.prepare('SELECT id, data FROM pacientes WHERE id = ?').get(patientId);
     if (!row) throw new HttpError(404, 'Paciente no encontrado.');
@@ -953,10 +1073,10 @@ async function handleApi(req, res, pathname, context) {
   }
 
   if (patientConsultationsMatch && method === 'POST') {
-    requireRole(auth, CLINICAL_WRITERS);
+    requirePermission(auth, 'consultations.write');
     const patientId = positiveId(patientConsultationsMatch[1], 'ID de paciente');
     ensurePatient(db, patientId);
-    const data = validateConsultationInput(requireObject(await readJsonBody(req, bodyLimit)));
+    const data = pricedConsultation(db, auth, validateConsultationInput(requireObject(await readJsonBody(req, bodyLimit))));
     data.fecha = data.fecha || nowIso().slice(0, 10);
     const consultationId = runTransaction(db, () => {
       const result = db.prepare('INSERT INTO consultas (paciente_id, data) VALUES (?, ?)')
@@ -970,12 +1090,12 @@ async function handleApi(req, res, pathname, context) {
 
   const consultationMatch = pathname.match(/^\/api\/consultas\/(\d+)$/);
   if (consultationMatch && method === 'PUT') {
-    requireRole(auth, CLINICAL_WRITERS);
+    requirePermission(auth, 'consultations.write');
     const consultationId = positiveId(consultationMatch[1], 'ID de consulta');
     const row = db.prepare('SELECT id, paciente_id, data FROM consultas WHERE id = ?').get(consultationId);
     if (!row) throw new HttpError(404, 'Consulta no encontrada.');
     const incoming = validateConsultationInput(requireObject(await readJsonBody(req, bodyLimit)));
-    const data = { ...parseData(row.data), ...incoming };
+    const data = { ...parseData(row.data), ...pricedConsultation(db, auth, incoming, parseData(row.data)) };
     data.fecha = data.fecha || nowIso().slice(0, 10);
     runTransaction(db, () => {
       db.prepare('UPDATE consultas SET data = ? WHERE id = ?').run(JSON.stringify(data), consultationId);
@@ -1074,7 +1194,7 @@ async function handleApi(req, res, pathname, context) {
 }
 
 function allowedStaticPath(pathname) {
-  if (pathname === '/' || pathname === '/index.html' || pathname === '/logo.jpg') return true;
+  if (pathname === '/' || pathname === '/index.html' || pathname === '/activar.html' || pathname === '/logo.jpg') return true;
   return pathname.startsWith('/css/') || pathname.startsWith('/js/') || pathname.startsWith('/img/');
 }
 
@@ -1146,7 +1266,7 @@ function createServer(options = {}) {
 
   if (dbPath !== ':memory:') fs.mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = openDatabase(dbPath);
-  const context = { db, bodyLimit, sessionMaxAge, cookieSecure };
+  const context = { db, bodyLimit, sessionMaxAge, cookieSecure, mailer: options.mailer }; 
 
   const server = http.createServer((req, res) => {
     let pathname;
@@ -1164,7 +1284,7 @@ function createServer(options = {}) {
       : serveStatic(req, res, pathname, staticRoot);
     Promise.resolve(operation).catch((error) => {
       if (res.writableEnded) return;
-      if (error instanceof HttpError) {
+      if (error instanceof HttpError || error.status === 400) {
         return sendError(res, error.status, error.message);
       }
       logger.error('Error interno del servidor:', error);

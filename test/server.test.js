@@ -17,7 +17,9 @@ function cookieFrom(response) {
 test('API odontologica: integracion completa', async (t) => {
   const temporaryDirectory = fs.mkdtempSync(path.join(os.tmpdir(), 'odontologia-test-'));
   const databasePath = path.join(temporaryDirectory, 'test.sqlite');
+  const sentMail = [];
   const server = createServer({
+    mailer: { baseUrl: 'https://dentalros.test/', send: async message => { sentMail.push(message); } },
     dbPath: databasePath,
     cookieSecure: false,
     staticRoot: path.resolve(__dirname, '..'),
@@ -29,7 +31,7 @@ test('API odontologica: integracion completa', async (t) => {
   });
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
 
-  async function request(urlPath, options = {}) {
+  async function rawRequest(urlPath, options = {}) {
     const headers = new Headers(options.headers || {});
     if (options.cookie) headers.set('Cookie', options.cookie);
     let body;
@@ -58,6 +60,21 @@ test('API odontologica: integracion completa', async (t) => {
       cookie: cookieFrom(response),
       headers: response.headers
     };
+  }
+
+  // En estas regresiones el destinatario acepta su invitación con la clave de prueba.
+  async function request(urlPath, options = {}) {
+    const invitation = options.method === 'POST' && (urlPath === '/api/users' || urlPath.endsWith('/reset-password')) && options.body?.password;
+    if (!invitation) return rawRequest(urlPath, options);
+    const { password, ...body } = options.body;
+    if (urlPath === '/api/users') body.email = `${body.username.toLowerCase()}@example.test`;
+    const result = await rawRequest(urlPath, { ...options, body });
+    if (result.status < 300) {
+      assert.equal(result.data.invitationSent, true);
+      const token = new URLSearchParams(new URL(sentMail.at(-1).url).hash.slice(1)).get('invite');
+      assert.equal((await rawRequest('/api/auth/accept-invitation', { method: 'POST', body: { token, password } })).status, 200);
+    }
+    return result;
   }
 
   let adminCookie;
@@ -158,7 +175,7 @@ test('API odontologica: integracion completa', async (t) => {
       });
       assert.equal(reader.status, 201);
       assert.equal(reader.data.username, 'lectora.uno');
-      assert.equal(reader.data.mustChangePassword, true);
+      assert.equal(reader.data.mustChangePassword, false);
       readerId = reader.data.id;
 
       const editor = await request('/api/users', {
@@ -200,7 +217,7 @@ test('API odontologica: integracion completa', async (t) => {
       for (const user of users.data) {
         assert.deepEqual(
           Object.keys(user).sort(),
-          ['active', 'createdAt', 'displayName', 'id', 'mustChangePassword', 'role', 'updatedAt', 'username'].sort()
+          ['active', 'createdAt', 'displayName', 'email', 'id', 'invitationPending', 'mustChangePassword', 'role', 'updatedAt', 'username'].sort()
         );
       }
     });
@@ -211,10 +228,10 @@ test('API odontologica: integracion completa', async (t) => {
         body: { username: 'lectora.uno', password: 'TemporalLector123!' }
       });
       assert.equal(login.status, 200);
-      assert.equal(login.data.user.mustChangePassword, true);
+      assert.equal(login.data.user.mustChangePassword, false);
       const readerCookie = login.cookie;
 
-      assert.equal((await request('/api/pacientes', { cookie: readerCookie })).status, 403);
+      assert.equal((await request('/api/pacientes', { cookie: readerCookie })).status, 200);
       const changed = await request('/api/auth/change-password', {
         method: 'POST',
         cookie: readerCookie,
@@ -240,7 +257,7 @@ test('API odontologica: integracion completa', async (t) => {
       });
       assert.equal(login.status, 200);
       editorCookie = login.cookie;
-      assert.equal((await request('/api/pacientes', { cookie: editorCookie })).status, 403);
+      assert.equal((await request('/api/pacientes', { cookie: editorCookie })).status, 200);
       const changed = await request('/api/auth/change-password', {
         method: 'POST',
         cookie: editorCookie,
@@ -416,7 +433,7 @@ test('API odontologica: integracion completa', async (t) => {
       assert.equal(nextPatient.data.id, 78);
     });
 
-    await t.test('cambio y reset de contrasena gestionan mustChangePassword y sesiones', async () => {
+    await t.test('cambio y enlace de contraseña revocan las sesiones anteriores', async () => {
       const firstLogin = await request('/api/auth/login', {
         method: 'POST',
         body: { username: 'lectora.uno', password: 'LectorInicial123!' }
@@ -457,7 +474,7 @@ test('API odontologica: integracion completa', async (t) => {
         body: { password: 'Restablecida123!' }
       });
       assert.equal(reset.status, 200);
-      assert.equal(reset.data.mustChangePassword, true);
+      assert.equal(reset.data.mustChangePassword, false);
       assert.equal((await request('/api/auth/me', { cookie: newLogin.cookie })).status, 401);
 
       const resetLogin = await request('/api/auth/login', {
@@ -465,7 +482,7 @@ test('API odontologica: integracion completa', async (t) => {
         body: { username: 'lectora.uno', password: 'Restablecida123!' }
       });
       assert.equal(resetLogin.status, 200);
-      assert.equal(resetLogin.data.user.mustChangePassword, true);
+      assert.equal(resetLogin.data.user.mustChangePassword, false);
 
       const deleted = await request(`/api/users/${readerId}`, {
         method: 'DELETE',
@@ -549,7 +566,7 @@ test('API odontologica: integracion completa', async (t) => {
       const actions = new Set(rows.map((row) => row.action));
       for (const action of [
         'setup', 'login_success', 'login_failed', 'user_create', 'user_update',
-        'user_delete', 'password_change', 'password_reset', 'patient_create',
+        'user_delete', 'password_change', 'invitation_accepted', 'patient_create',
         'patient_update', 'patient_delete', 'history_update', 'consultation_create',
         'consultation_update', 'odontogram_update', 'config_update', 'backup_export',
         'backup_import'

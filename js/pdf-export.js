@@ -73,6 +73,7 @@ class PDFExporter {
         </td>
         <td style="padding: 8px 6px; font-size: 11px; color: #334155;">
           ${c.tratamiento || '-'}
+          ${Array.isArray(c.procedimientos) ? c.procedimientos.map(item => `<div>${escape(item.nombre)}${item.diagnostico ? ' · ' + escape(item.diagnostico) : ''}: ${Number(item.cantidad)} × $${(Number(item.precioCentavos) / 100).toFixed(2)} = $${(Number(item.subtotalCentavos) / 100).toFixed(2)}</div>`).join('') : ''}
         </td>
         <td style="padding: 8px 6px; font-size: 11px; color: #475569;">
           ${c.receta || '-'}

@@ -58,6 +58,21 @@ class LocalOdontoDB extends OdontoDB {
     return patient;
   }
 
+  getCatalogo() { return this.access(false, data => data.catalogo || []); }
+  saveCatalogo(item) {
+    return this.access(true, data => {
+      data.catalogo ||= [];
+      const value = window.DentalBilling.catalogItem(item);
+      const previous = data.catalogo.find(value => value.id === Number(item.id));
+      if (item.id && !previous) throw new Error('Elemento no encontrado.');
+      if (previous && previous.tipo !== value.tipo) throw new Error('No se puede cambiar el tipo.');
+      const id = previous?.id || data.catalogo.reduce((max, item) => Math.max(max, item.id + 1), 1);
+      const saved = { ...value, id };
+      if (previous) data.catalogo[data.catalogo.indexOf(previous)] = saved;
+      else data.catalogo.push(saved);
+      return saved;
+    });
+  }
   getPacientes() { return this.access(false, data => data.pacientes); }
   getPaciente(id) { return this.access(false, data => this.requirePatient(data, id)); }
   savePaciente(patient) {
@@ -102,6 +117,10 @@ class LocalOdontoDB extends OdontoDB {
       this.requirePatient(data, pacienteId);
       const id = previous ? previous.id : data.nextConsulta++;
       const saved = { ...previous, ...value, id, pacienteId };
+      if (value.procedimientos !== undefined) {
+        saved.procedimientos = window.DentalBilling.lines(value.procedimientos, data.catalogo || [], true, previous?.procedimientos || []);
+        saved.costo = window.DentalBilling.total(saved.procedimientos);
+      } else if (previous?.procedimientos) saved.costo = window.DentalBilling.total(previous.procedimientos);
       if (previous) data.consultas[data.consultas.indexOf(previous)] = saved;
       else data.consultas.push(saved);
       return id;
@@ -111,8 +130,8 @@ class LocalOdontoDB extends OdontoDB {
   getConfig() { return this.access(false, data => data.config); }
   saveConfig(config) { return this.access(true, data => { data.config = { ...data.config, ...config }; return true; }); }
   exportAllData() {
-    return this.access(false, ({ pacientes, historias, consultas, odontogramas, config }) => ({
-      version: '2.0', sistema: 'DentalRos', fechaExportacion: new Date().toISOString(), pacientes, historias, consultas, odontogramas, config
+    return this.access(false, ({ pacientes, historias, consultas, odontogramas, config, catalogo }) => ({
+      version: '2.0', sistema: 'DentalRos', fechaExportacion: new Date().toISOString(), pacientes, historias, consultas, odontogramas, config, catalogo: catalogo || []
     }));
   }
   importAllData(backup) {
@@ -141,6 +160,18 @@ class LocalOdontoDB extends OdontoDB {
       }
       incoming.nextPaciente = incoming.pacientes.reduce((max, item) => Math.max(max, item.id + 1), 1);
       incoming.nextConsulta = incoming.consultas.reduce((max, item) => Math.max(max, item.id + 1), 1);
+      if (backup.catalogo !== undefined) {
+        if (!Array.isArray(backup.catalogo)) throw new Error('Catálogo inválido.');
+        const ids = new Set();
+        incoming.catalogo = backup.catalogo.map(item => {
+          if (!Number.isSafeInteger(item.id) || item.id <= 0 || ids.has(item.id)) throw new Error('ID de catálogo inválido o duplicado.');
+          ids.add(item.id);
+          return { id: item.id, ...window.DentalBilling.catalogItem({ ...item, precio: item.precioCentavos / 100 }) };
+        });
+      } else incoming.catalogo = data.catalogo || [];
+      for (const item of incoming.consultas) {
+        if (item.procedimientos !== undefined) item.costo = window.DentalBilling.total(window.DentalBilling.validateSnapshot(item.procedimientos));
+      }
       Object.assign(data, incoming);
       return true;
     });

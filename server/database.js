@@ -86,6 +86,30 @@ function openDatabase(filename) {
     CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON audit_logs(created_at);
   `);
 
+  // Migración aditiva: conserva IDs, contraseñas, sesiones y registros previos.
+  runTransaction(db, () => {
+    const columns = new Set(db.prepare('PRAGMA table_info(users)').all().map(column => column.name));
+    if (!columns.has('professional_role')) db.exec("ALTER TABLE users ADD COLUMN professional_role TEXT");
+    if (!columns.has('email')) db.exec("ALTER TABLE users ADD COLUMN email TEXT");
+    if (!columns.has('invitation_pending')) db.exec("ALTER TABLE users ADD COLUMN invitation_pending INTEGER NOT NULL DEFAULT 0");
+    db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL;
+      CREATE TABLE IF NOT EXISTS invitations (
+        token_hash TEXT PRIMARY KEY,
+        user_id INTEGER NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+        expires_at INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS catalogo (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        tipo TEXT NOT NULL CHECK (tipo IN ('diagnostico', 'procedimiento')),
+        nombre TEXT NOT NULL,
+        precio_centavos INTEGER NOT NULL DEFAULT 0 CHECK (precio_centavos >= 0),
+        activo INTEGER NOT NULL DEFAULT 1 CHECK (activo IN (0, 1))
+      ) STRICT;
+    `);
+  });
+
   db.prepare('INSERT OR IGNORE INTO configuracion (id, data) VALUES (?, ?)')
     .run(DEFAULT_CONFIG.id, JSON.stringify(DEFAULT_CONFIG));
 

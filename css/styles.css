@@ -1047,3 +1047,12 @@ textarea:disabled {
     display: none !important;
   }
 }
+
+/* Catálogo y desglose de importes */
+.billing-panel{padding:14px;background:#fff1f2;border:1px solid #fecdd3;border-radius:16px}
+.billing-panel h4{font-weight:800;margin-bottom:8px}.billing-panel p{line-height:1.5;margin:8px 0}
+.procedure-line{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:12px;margin:12px 0;background:white;border:1px solid #fecdd3;border-radius:12px}
+.procedure-line label{display:flex;flex-direction:column;gap:5px;font-weight:600}.procedure-line input,.procedure-line select{width:100%;min-width:0;padding:9px;border:1px solid #cbd5e1;border-radius:8px;background:white}
+.catalog-entry{display:flex;justify-content:space-between;gap:12px;align-items:center;border-bottom:1px solid #fce7f3;padding:12px 0}.catalog-entry small{display:block;margin-top:5px;color:#64748b}
+.procedure-detail{width:100%;margin:12px 0;font-size:12px;border-collapse:collapse}.procedure-detail td,.procedure-detail th{padding:8px;text-align:left;border-bottom:1px solid #fce7f3}
+@media(max-width:480px){.procedure-line{grid-template-columns:1fr}.procedure-detail td,.procedure-detail th{padding:5px;font-size:11px}}

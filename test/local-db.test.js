@@ -8,7 +8,8 @@ const { indexedDB } = require('fake-indexeddb');
 function load(hostname = 'example.github.io') {
   const window = { location: { hostname, pathname: '/dentalros/' } };
   const context = vm.createContext({ window, indexedDB, structuredClone, console });
-  for (const file of ['js/db.js', 'js/db-local.js']) vm.runInContext(fs.readFileSync(file, 'utf8'), context);
+  window.DentalBilling = require('../js/billing');
+  for (const file of ['js/billing.js', 'js/db.js', 'js/db-local.js']) vm.runInContext(fs.readFileSync(file, 'utf8'), context);
   return window.odontoDB;
 }
 

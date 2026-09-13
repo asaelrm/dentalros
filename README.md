@@ -39,10 +39,40 @@ Después de crear esa cuenta, la configuración inicial se bloquea y solamente u
 | Perfil | Consultar expedientes | Modificar datos clínicos | Usuarios, configuración y respaldos |
 |---|---:|---:|---:|
 | Administrador | Sí | Sí | Sí |
+| Doctor/a | Sí | Sí; también catálogo y precios | No |
+| Secretaría | Sí | Pacientes, citas y procedimientos con precios definidos | No |
+| Auxiliar de odontología | Sí | No | No |
+| Soporte técnico | No | No | Usuarios no administrativos, sin acceso clínico |
 | Editor | Sí | Sí | No |
 | Solo lectura | Sí | No | No |
 
-El administrador asigna el perfil desde `Menú de usuario > Administrar usuarios`. Los permisos se validan en la interfaz y nuevamente en el servidor, por lo que ocultar o alterar un botón no permite saltarse las restricciones.
+El administrador asigna el perfil desde `Menú de usuario > Administrar usuarios`. `Editor` y `Solo lectura` se conservan para las cuentas creadas en versiones anteriores. Los permisos se validan en la interfaz y nuevamente en el servidor, por lo que ocultar o alterar un botón no permite saltarse las restricciones.
+
+## Invitaciones privadas por correo
+
+El administrador indica nombre, usuario, perfil y correo. DentalRos envía un enlace aleatorio de un solo uso que vence en 24 horas. La persona crea su propia contraseña en `activar.html`; la contraseña nunca se envía por correo ni se muestra al administrador. Reenviar una invitación invalida el enlace anterior y, para cuentas existentes, cierra sus sesiones activas al aceptar la nueva contraseña.
+
+El envío utiliza SMTP con TLS mediante Nodemailer. Completa estas variables privadas en `.env`:
+
+```dotenv
+PUBLIC_URL=https://direccion-publica-del-sistema.example
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=usuario-smtp
+SMTP_PASSWORD=contraseña-o-clave-de-aplicación
+SMTP_FROM=DentalRos <cuenta@example.com>
+```
+
+`PUBLIC_URL` debe ser la URL real que abrirá el destinatario. Con un Quick Tunnel de Cloudflare cambia en cada ejecución: copia la nueva dirección `https://...trycloudflare.com` a `.env` y ejecuta otra vez `docker compose up -d` antes de crear o reenviar invitaciones. El puerto 465 suele usar `SMTP_SECURE=true`; el puerto 587 usa `false` y el servidor exige la actualización STARTTLS. Consulta los valores exactos con tu proveedor de correo y usa una clave de aplicación cuando corresponda. Nunca publiques `.env`.
+
+Si SMTP rechaza un correo, la cuenta queda pendiente y la interfaz lo informa; corrige la configuración y pulsa **Enviar enlace**. El servidor no expone el token en la respuesta ni lo guarda en texto legible.
+
+## Diagnósticos, procedimientos e importes
+
+Administradores y doctores gestionan el catálogo desde el menú de usuario. Cada procedimiento tiene un precio predeterminado y puede asociarse con un diagnóstico durante una consulta. En una visita se pueden añadir varios procedimientos y cantidades; DentalRos calcula cada subtotal y suma el total automáticamente.
+
+El precio y el nombre usados quedan guardados como una copia histórica dentro de la consulta. Cambiar el catálogo afecta las visitas nuevas, pero no modifica cobros anteriores. El servidor recalcula los importes y rechaza precios manipulados por perfiles sin permiso. Los respaldos JSON incluyen el catálogo y el desglose de cada consulta.
 
 ## Contraseñas
 
@@ -161,9 +191,9 @@ docker compose up -d
 
 ### Variables y datos
 
-Compose lee `.env` para configurar `PORT` (predeterminado `3000`) y `COOKIE_SECURE` (predeterminado `true`). Si cambias el puerto, vuelve a ejecutar `docker compose up -d` y utiliza ese puerto también en el navegador y el túnel. Las cookies seguras funcionan con HTTPS y con `localhost` en navegadores actuales; utiliza la URL local indicada. Mantén `COOKIE_SECURE=true` para compartir por Cloudflare.
+Compose lee `.env` para configurar `PORT` (predeterminado `3000`), `COOKIE_SECURE` (predeterminado `true`), `PUBLIC_URL` y SMTP. Si cambias el puerto o la URL del túnel, vuelve a ejecutar `docker compose up -d`. Las cookies seguras funcionan con HTTPS y con `localhost` en navegadores actuales; utiliza la URL local indicada. Mantén `COOKIE_SECURE=true` para compartir por Cloudflare.
 
-`HOST=0.0.0.0` permite recibir conexiones dentro del contenedor; el puerto de Windows se publica solo en `127.0.0.1`. `DB_PATH=/app/data/odontologia.sqlite` apunta al volumen Docker `dentalros_data` (Compose añade el prefijo del proyecto). No hay contraseñas predeterminadas ni credenciales que configurar en `.env`.
+`HOST=0.0.0.0` permite recibir conexiones dentro del contenedor; el puerto de Windows se publica solo en `127.0.0.1`. `DB_PATH=/app/data/odontologia.sqlite` apunta al volumen Docker `dentalros_data` (Compose añade el prefijo del proyecto). No hay contraseñas predeterminadas. Las únicas credenciales de `.env` son las de la cuenta SMTP usada para enviar invitaciones.
 
 El volumen comienza con una base nueva y conserva usuarios y expedientes al reiniciar o reconstruir el contenedor. La carpeta `data/` del repositorio queda intacta y no se copia a la imagen. Para pasar expedientes existentes, exporta un respaldo JSON desde la instalación anterior e impórtalo con **Restaurar** en Docker; las cuentas se crean por separado. Exporta respaldos desde la aplicación antes de moverla a otro equipo.
 

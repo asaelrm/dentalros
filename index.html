@@ -144,6 +144,7 @@
 
   <div id="app-shell" class="flex-1 flex-col" hidden>
   <aside id="local-mode-notice" hidden role="note" style="padding:12px 16px;background:#fff3cd;color:#664d03;text-align:center;font-size:14px">
+    <button id="btn-catalogo-local" type="button" class="secondary-button">Catálogo y precios</button>
     <strong>Modo local · Sin inicio de sesión.</strong> Los datos se guardan solo en este navegador y dispositivo. Cualquier persona con acceso a este navegador puede verlos. Exporta respaldos: borrar los datos del sitio elimina los expedientes.
   </aside>
 
@@ -216,6 +217,7 @@
               <strong id="menu-user-name">Usuario</strong>
               <span id="menu-user-username">@usuario</span>
             </div>
+            <button id="btn-catalogo" type="button">Diagnósticos y procedimientos</button>
             <button id="btn-gestionar-usuarios" type="button">Administrar usuarios</button>
             <button id="btn-cambiar-password" type="button">Cambiar mi contraseña</button>
             <button id="btn-cerrar-sesion" type="button" class="user-menu-danger">Cerrar sesión</button>
@@ -225,6 +227,11 @@
 
     </div>
   </header>
+  <section id="support-panel" hidden class="glass-panel p-6 m-4 rounded-2xl">
+    <h2 class="font-bold">Soporte técnico</h2>
+    <p>Administra las cuentas del personal. Este perfil no tiene acceso a expedientes clínicos.</p>
+    <button id="btn-support-users" type="button" class="btn-primary px-4 py-2 rounded-xl mt-4">Administrar usuarios</button>
+  </section>
 
   <!-- ================= SELECTOR DE VISTA PARA DISPOSITIVOS MÓVILES (< 768px) ================= -->
   <div class="block md:hidden px-3.5 pt-3">
@@ -629,6 +636,13 @@
       </div>
 
       <form id="form-consulta" class="space-y-4 text-xs">
+        <section class="billing-panel">
+          <h4>Procedimientos de esta visita</h4>
+          <p>Selecciona cada procedimiento, el diagnóstico asociado y la cantidad. El total se calcula automáticamente.</p>
+          <div id="consulta-procedimientos"></div>
+          <button id="btn-add-procedimiento" type="button" class="secondary-button">+ Agregar procedimiento</button>
+          <p id="consulta-catalog-status" role="status"></p>
+        </section>
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label class="block font-bold text-rose-950 mb-1">Fecha de Atención *</label>
@@ -636,8 +650,8 @@
               class="w-full px-3.5 py-2.5 bg-white/85 border border-rose-200/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-400 focus:bg-white transition" />
           </div>
           <div>
-            <label class="block font-bold text-rose-950 mb-1">Honorarios / Costo ($)</label>
-            <input type="number" step="0.01" min="0" name="costo" placeholder="0.00"
+            <label class="block font-bold text-rose-950 mb-1">Total de procedimientos ($)</label>
+            <input type="number" step="0.01" min="0" name="costo" readonly placeholder="0.00" aria-label="Total calculado de procedimientos"
               class="w-full px-3.5 py-2.5 bg-white/85 border border-rose-200/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-400 focus:bg-white transition" />
           </div>
         </div>
@@ -785,18 +799,20 @@
             <label>
               Permiso
               <select name="role" required>
-                <option value="lector">Solo lectura</option>
-                <option value="editor">Puede modificar datos clínicos</option>
-                <option value="admin">Administrador completo</option>
+                <option value="auxiliar">Auxiliar de odontología</option>
+                <option value="secretaria">Secretaría</option>
+                <option value="doctor">Doctor/a</option>
+                <option value="soporte">Soporte técnico</option>
+                <option value="admin">Administrador</option>
               </select>
             </label>
             <label>
-              Contraseña temporal
-              <input type="password" name="password" minlength="10" autocomplete="new-password" required />
+              Correo del destinatario
+              <input type="email" name="email" maxlength="254" autocomplete="email" required />
             </label>
             <button type="submit" class="btn-primary auth-submit">Crear usuario</button>
           </form>
-          <p class="form-note">El usuario deberá cambiar la contraseña temporal al ingresar.</p>
+          <p class="form-note">Enviaremos un enlace privado por correo para que el usuario cree su contraseña. El enlace vence en 24 horas.</p>
         </section>
 
         <section class="user-list-panel">
@@ -807,6 +823,7 @@
             </div>
             <span id="usuarios-count" class="user-count-badge">0</span>
           </div>
+          <p id="users-message" class="auth-message" role="status" hidden></p>
           <div id="lista-usuarios" class="user-list"></div>
         </section>
       </div>
@@ -820,14 +837,7 @@
       <p class="text-xs text-slate-500 mt-1 mb-4">Cuenta: <strong id="reset-password-user-name"></strong></p>
       <form id="form-reset-password" class="auth-form compact-form">
         <input type="hidden" name="userId" />
-        <label>
-          Nueva contraseña temporal
-          <input type="password" name="password" minlength="10" autocomplete="new-password" required />
-        </label>
-        <label>
-          Confirmar contraseña
-          <input type="password" name="confirmPassword" minlength="10" autocomplete="new-password" required />
-        </label>
+        <p>Se enviará un enlace privado al correo registrado. La persona elegirá su contraseña; no se mostrará al administrador.</p>
         <div class="modal-actions">
           <button id="btn-cancelar-reset-password" type="button" class="secondary-button">Cancelar</button>
           <button type="submit" class="btn-primary auth-submit">Restablecer</button>
@@ -903,13 +913,33 @@
     </div>
   </div>
 
+  <div id="modal-catalogo" class="fixed inset-0 z-[60] hidden items-center justify-center modal-backdrop p-3" hidden>
+    <section class="glass-modal rounded-3xl max-w-3xl w-full p-6 max-h-[90vh] overflow-y-auto">
+      <div class="flex justify-between gap-3"><h3 class="font-bold">Diagnósticos, procedimientos y precios</h3><button id="btn-close-catalogo" type="button" class="secondary-button">Cerrar</button></div>
+      <p class="text-sm my-3">Los nuevos precios se aplican a visitas nuevas. Los registros anteriores conservan sus importes.</p>
+      <form id="form-catalogo" class="auth-form compact-form">
+        <input type="hidden" name="id">
+        <label>Tipo<select name="tipo"><option value="diagnostico">Diagnóstico</option><option value="procedimiento">Procedimiento</option></select></label>
+        <label>Nombre<input name="nombre" maxlength="200" required></label>
+        <label>Precio del procedimiento ($)<input name="precio" type="number" min="0" max="10000000" step="0.01" value="0" required></label>
+        <label><input name="activo" type="checkbox" checked> Disponible para nuevas visitas</label>
+        <div class="flex gap-2"><button type="submit" class="btn-primary px-4 py-2 rounded-xl">Guardar</button><button id="btn-new-catalogo" type="button" class="secondary-button">Nuevo</button></div>
+      </form>
+      <p id="catalog-message" role="status"></p>
+      <div id="catalog-list" class="mt-4"></div>
+    </section>
+  </div>
+
   <!-- Scripts del Sistema -->
   <script src="js/mouse-fx.js"></script>
   <script src="js/security.js"></script>
+  <script src="js/permissions.js"></script>
+  <script src="js/billing.js"></script>
   <script src="js/db.js"></script>
   <script src="js/db-local.js"></script>
   <script src="js/odontograma.js"></script>
   <script src="js/pdf-export.js"></script>
+  <script src="js/catalog.js"></script>
   <script src="js/app.js"></script>
   <script src="js/auth.js"></script>
 </body>

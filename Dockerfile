@@ -7,9 +7,10 @@ ENV NODE_ENV=production \
 
 WORKDIR /app
 
-# La aplicación utiliza únicamente módulos integrados de Node.js.
-# fake-indexeddb es una dependencia de pruebas y no se necesita en producción.
-COPY --chown=node:node package.json package-lock.json server.js index.html logo.jpg ./
+# Instala solo las dependencias del servidor; excluye herramientas de pruebas.
+COPY --chown=node:node package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+COPY --chown=node:node server.js index.html activar.html logo.jpg ./
 COPY --chown=node:node server/ ./server/
 COPY --chown=node:node js/ ./js/
 COPY --chown=node:node css/ ./css/

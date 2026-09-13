@@ -67,18 +67,23 @@ class OdontoApp {
     const canEdit = this.canEdit();
     const isAdmin = this.isAdmin();
 
-    ['btn-nuevo-paciente', 'btn-editar-paciente', 'btn-eliminar-paciente', 'btn-nueva-consulta', 'btn-registrar-primer-paciente']
+    ['btn-eliminar-paciente']
       .forEach(id => {
         const element = document.getElementById(id);
         if (element) element.hidden = !canEdit;
       });
 
-    ['btn-exportar-backup', 'label-importar-backup', 'btn-abrir-config', 'btn-gestionar-usuarios']
+    ['btn-exportar-backup', 'label-importar-backup', 'btn-abrir-config']
       .forEach(id => {
         const element = document.getElementById(id);
         if (element) element.hidden = !isAdmin;
       });
 
+    for (const id of ['btn-nuevo-paciente', 'btn-editar-paciente', 'btn-registrar-primer-paciente']) {
+      const button = document.getElementById(id);
+      if (button) button.hidden = !window.authManager.hasPermission('patients.write');
+    }
+    document.getElementById('btn-nueva-consulta').hidden = !window.authManager.hasPermission('consultations.write');
     const historiaForm = document.getElementById('form-historia-clinica');
     if (historiaForm) {
       historiaForm.querySelectorAll('input, textarea, select, button[type="submit"]').forEach(control => {
@@ -352,6 +357,7 @@ class OdontoApp {
           </div>
         </div>
 
+        ${Array.isArray(c.procedimientos) && c.procedimientos.length ? `<table class="procedure-detail"><thead><tr><th>Procedimiento / diagnóstico</th><th>Cant.</th><th>Precio</th><th>Subtotal</th></tr></thead><tbody>${c.procedimientos.map(item => `<tr><td>${escape(item.nombre)}${item.diagnostico ? `<br><small>${escape(item.diagnostico)}</small>` : ''}</td><td>${Number(item.cantidad)}</td><td>$${(Number(item.precioCentavos) / 100).toFixed(2)}</td><td>$${(Number(item.subtotalCentavos) / 100).toFixed(2)}</td></tr>`).join('')}</tbody></table>` : ''}
         <div class="grid grid-cols-1 md:grid-cols-2 gap-3 sm:gap-4 text-xs">
           <div>
             <strong class="text-rose-900/80 uppercase tracking-wider text-[10px] font-black block mb-1">Motivo / Síntomas:</strong>
@@ -608,11 +614,14 @@ class OdontoApp {
             diagnostico: f.diagnostico.value.trim(),
             tratamiento: f.tratamiento.value.trim(),
             receta: f.receta.value.trim(),
-            costo: f.costo.value ? Number(f.costo.value) : null,
+            procedimientos: window.catalogManager.getLines(),
             observaciones: f.observaciones.value.trim(),
             proximaCita: f.proximaCita.value
           };
 
+          if (!this.canEdit()) {
+            for (const field of ['motivo', 'diagnostico', 'tratamiento', 'receta', 'observaciones', 'proximaCita']) delete consultaData[field];
+          }
           await window.odontoDB.saveConsulta(consultaData);
           this.closeModal('modal-consulta');
           this.currentConsultas = await window.odontoDB.getConsultas(this.currentPacienteId);
@@ -826,7 +835,12 @@ class OdontoApp {
     const f = document.getElementById('form-consulta');
     f.reset();
     f.fecha.value = new Date().toISOString().split('T')[0];
+    for (const field of ['motivo', 'diagnostico', 'tratamiento', 'receta', 'observaciones', 'proximaCita']) {
+      f[field].disabled = !this.canEdit();
+      f[field].closest('div').hidden = !this.canEdit();
+    }
     this.openModal('modal-consulta');
+    window.catalogManager.prepareConsultation();
   }
 
   openPDFPreviewModal() {

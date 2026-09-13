@@ -58,6 +58,12 @@ class OdontoDB {
     return true;
   }
 
+  async getCatalogo() { return this.api.request('/api/catalogo'); }
+
+  async saveCatalogo(item) {
+    return this.api.request(item.id ? `/api/catalogo/${Number(item.id)}` : '/api/catalogo', { method: item.id ? 'PUT' : 'POST', body: item });
+  }
+
   async getPacientes() {
     return this.api.request('/api/pacientes');
   }
