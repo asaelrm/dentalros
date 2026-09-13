@@ -116,6 +116,18 @@ class OdontoDB {
     return true;
   }
 
+  async saveFactura(consultaId, factura) {
+    return this.api.request(`/api/consultas/${Number(consultaId)}/factura`, { method: 'PUT', body: factura });
+  }
+
+  async closeFactura(consultaId) {
+    return this.api.request(`/api/consultas/${Number(consultaId)}/factura/cerrar`, { method: 'POST', body: {} });
+  }
+
+  async reopenFactura(consultaId) {
+    return this.api.request(`/api/consultas/${Number(consultaId)}/factura/reabrir`, { method: 'POST', body: {} });
+  }
+
   async getOdontograma(pacienteId) {
     return this.api.request(`/api/pacientes/${Number(pacienteId)}/odontograma`);
   }

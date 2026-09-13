@@ -69,17 +69,18 @@ class PDFExporter {
         <td style="padding: 8px 6px; font-size: 11px; color: #0f172a;">
           <span style="display:inline-block; padding: 2px 6px; background:#eff6ff; color:#1d4ed8; border-radius:4px; font-weight:600;">
             ${c.diagnostico || 'Evaluación'}
+            ${c.factura?.diagnostico ? `<br><small>Factura: ${escape(c.factura.diagnostico)}</small>` : ''}
           </span>
         </td>
         <td style="padding: 8px 6px; font-size: 11px; color: #334155;">
           ${c.tratamiento || '-'}
-          ${Array.isArray(c.procedimientos) ? c.procedimientos.map(item => `<div>${escape(item.nombre)}${item.diagnostico ? ' · ' + escape(item.diagnostico) : ''}: ${Number(item.cantidad)} × $${(Number(item.precioCentavos) / 100).toFixed(2)} = $${(Number(item.subtotalCentavos) / 100).toFixed(2)}</div>`).join('') : ''}
+          ${Array.isArray(c.factura?.procedimientos) ? c.factura.procedimientos.map(item => `<div>${escape(item.nombre)}${item.diagnostico ? ' · ' + escape(item.diagnostico) : ''}: ${Number(item.cantidad)} × $${(Number(item.precioCentavos) / 100).toFixed(2)} = $${(Number(item.subtotalCentavos) / 100).toFixed(2)}</div>`).join('') : ''}
         </td>
         <td style="padding: 8px 6px; font-size: 11px; color: #475569;">
           ${c.receta || '-'}
         </td>
         <td style="padding: 8px 6px; font-size: 11px; text-align: right; font-weight: bold; color: #047857;">
-          ${c.costo ? `$${Number(c.costo).toFixed(2)}` : '-'}
+          ${c.factura ? `$${Number(c.factura.total).toFixed(2)} (${escape(c.factura.estado)})` : (c.costo ? `$${Number(c.costo).toFixed(2)}` : '-')}
         </td>
       </tr>
     `).join('') : `

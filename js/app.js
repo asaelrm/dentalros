@@ -352,7 +352,8 @@ class OdontoApp {
             </span>
           </div>
           <div class="flex items-center gap-2">
-            ${c.costo ? `<span class="text-xs sm:text-sm font-black text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-xl border border-emerald-200 shadow-xs">$${Number(c.costo).toFixed(2)}</span>` : ''}
+            ${c.factura ? `<span class="text-xs font-black px-2.5 py-0.5 rounded-xl border ${c.factura.estado === 'cerrada' ? 'bg-slate-100 text-slate-700' : 'bg-amber-50 text-amber-800'}">Factura ${escape(c.factura.estado)}</span><span class="text-xs sm:text-sm font-black text-emerald-800 bg-emerald-50 px-2.5 py-0.5 rounded-xl border border-emerald-200">$${Number(c.factura.total).toFixed(2)}</span>` : (c.costo ? `<span class="text-xs font-black text-emerald-800">$${Number(c.costo).toFixed(2)} · anterior</span>` : '')}
+            <button type="button" class="btn-open-factura secondary-button" data-id="${Number(c.id)}">${c.factura ? 'Ver factura' : 'Crear factura'}</button>
             ${this.canEdit() ? `<button type="button" class="btn-eliminar-consulta text-slate-400 hover:text-rose-600 text-xs p-1.5 rounded-lg hover:bg-rose-50 transition" data-id="${Number(c.id)}" title="Eliminar consulta">Eliminar</button>` : ''}
           </div>
         </div>
@@ -398,6 +399,9 @@ class OdontoApp {
           this.showToast('Consulta eliminada del récord.');
         }
       });
+    });
+    listEl.querySelectorAll('.btn-open-factura').forEach(btn => {
+      btn.addEventListener('click', () => this.openFacturaModal(Number(btn.dataset.id)));
     });
   }
 
@@ -614,7 +618,6 @@ class OdontoApp {
             diagnostico: f.diagnostico.value.trim(),
             tratamiento: f.tratamiento.value.trim(),
             receta: f.receta.value.trim(),
-            procedimientos: window.catalogManager.getLines(),
             observaciones: f.observaciones.value.trim(),
             proximaCita: f.proximaCita.value
           };
@@ -638,6 +641,12 @@ class OdontoApp {
         }
       });
     }
+
+    const formFactura = document.getElementById('form-factura');
+    formFactura?.addEventListener('submit', event => this.saveFactura(event));
+    document.getElementById('btn-finalize-factura')?.addEventListener('click', () => this.finalizeFactura());
+    document.getElementById('btn-reopen-factura')?.addEventListener('click', () => this.reopenFactura());
+    document.getElementById('btn-close-factura-modal')?.addEventListener('click', () => this.closeModal('modal-factura'));
 
     // 9. Pestañas del paciente
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -840,7 +849,78 @@ class OdontoApp {
       f[field].closest('div').hidden = !this.canEdit();
     }
     this.openModal('modal-consulta');
-    window.catalogManager.prepareConsultation();
+  }
+
+  async openFacturaModal(consultaId) {
+    const consulta = this.currentConsultas.find(item => item.id === Number(consultaId));
+    if (!consulta) return this.showToast('Consulta no encontrada.', 'error');
+    const form = document.getElementById('form-factura');
+    const factura = consulta.factura || null;
+    form.reset();
+    form.consultaId.value = String(consulta.id);
+    form.diagnostico.value = factura?.diagnostico || consulta.diagnostico || '';
+    await window.catalogManager.prepareInvoice(factura);
+    const closed = factura?.estado === 'cerrada';
+    const canWrite = window.authManager.hasPermission('invoice.write') && !closed;
+    form.diagnostico.readOnly = !canWrite;
+    document.getElementById('btn-add-procedimiento').hidden = !canWrite;
+    document.getElementById('btn-save-factura').hidden = !canWrite;
+    document.getElementById('btn-finalize-factura').hidden = !canWrite;
+    document.getElementById('btn-reopen-factura').hidden = !closed || !window.authManager.hasPermission('invoice.reopen');
+    document.getElementById('factura-title').textContent = closed ? 'Factura cerrada' : (factura ? 'Factura abierta' : 'Nueva factura');
+    document.getElementById('factura-message').textContent = closed ? 'Esta factura está bloqueada. Solo el administrador puede reabrirla.' : '';
+    document.querySelectorAll('#factura-procedimientos input, #factura-procedimientos select, #factura-procedimientos button').forEach(control => {
+      if (!canWrite) control.disabled = true;
+    });
+    this.openModal('modal-factura');
+  }
+
+  async saveFactura(event, quiet = false) {
+    event?.preventDefault();
+    const form = document.getElementById('form-factura');
+    const consultaId = Number(form.consultaId.value);
+    try {
+      const saved = await window.odontoDB.saveFactura(consultaId, {
+        diagnostico: form.diagnostico.value.trim(),
+        procedimientos: window.catalogManager.getLines()
+      });
+      this.currentConsultas = this.currentConsultas.map(item => item.id === consultaId ? saved : item);
+      this.renderConsultasTimeline();
+      if (!quiet) {
+        await this.openFacturaModal(consultaId);
+        document.getElementById('factura-message').textContent = 'Borrador guardado correctamente.';
+      }
+      return saved;
+    } catch (error) {
+      this.showToast(error.message, 'error');
+      if (quiet) throw error;
+      return null;
+    }
+  }
+
+  async finalizeFactura() {
+    const consultaId = Number(document.getElementById('form-factura').consultaId.value);
+    try {
+      await this.saveFactura(null, true);
+      if (!confirm('¿Cerrar esta factura? Quedará bloqueada y solo un administrador podrá reabrirla.')) return;
+      const saved = await window.odontoDB.closeFactura(consultaId);
+      this.currentConsultas = this.currentConsultas.map(item => item.id === consultaId ? saved : item);
+      this.renderConsultasTimeline();
+      await this.openFacturaModal(consultaId);
+      this.showToast('Factura cerrada correctamente.');
+    } catch {}
+  }
+
+  async reopenFactura() {
+    const consultaId = Number(document.getElementById('form-factura').consultaId.value);
+    if (!confirm('¿Reabrir esta factura para editarla? Esta acción quedará registrada.')) return;
+    try {
+      const saved = await window.odontoDB.reopenFactura(consultaId);
+      this.currentConsultas = this.currentConsultas.map(item => item.id === consultaId ? saved : item);
+      this.renderConsultasTimeline();
+      await this.openFacturaModal(consultaId);
+      this.showToast('Factura reabierta por el administrador.');
+    } catch (error) { this.showToast(error.message, 'error'); }
   }
 
   openPDFPreviewModal() {

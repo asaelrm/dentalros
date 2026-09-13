@@ -636,22 +636,10 @@
       </div>
 
       <form id="form-consulta" class="space-y-4 text-xs">
-        <section class="billing-panel">
-          <h4>Procedimientos de esta visita</h4>
-          <p>Selecciona cada procedimiento, el diagnóstico asociado y la cantidad. El total se calcula automáticamente.</p>
-          <div id="consulta-procedimientos"></div>
-          <button id="btn-add-procedimiento" type="button" class="secondary-button">+ Agregar procedimiento</button>
-          <p id="consulta-catalog-status" role="status"></p>
-        </section>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
           <div>
             <label class="block font-bold text-rose-950 mb-1">Fecha de Atención *</label>
             <input type="date" name="fecha" required
-              class="w-full px-3.5 py-2.5 bg-white/85 border border-rose-200/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-400 focus:bg-white transition" />
-          </div>
-          <div>
-            <label class="block font-bold text-rose-950 mb-1">Total de procedimientos ($)</label>
-            <input type="number" step="0.01" min="0" name="costo" readonly placeholder="0.00" aria-label="Total calculado de procedimientos"
               class="w-full px-3.5 py-2.5 bg-white/85 border border-rose-200/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-400 focus:bg-white transition" />
           </div>
         </div>
@@ -704,6 +692,41 @@
         </div>
       </form>
     </div>
+  </div>
+
+  <!-- MODAL: FACTURA DE LA CONSULTA -->
+  <div id="modal-factura" class="fixed inset-0 z-[60] hidden items-center justify-center modal-backdrop p-3" hidden>
+    <section class="glass-modal rounded-3xl max-w-3xl w-full p-5 sm:p-7 max-h-[92vh] overflow-y-auto">
+      <div class="flex items-center justify-between gap-3 border-b border-rose-100 pb-3 mb-4">
+        <div>
+          <p class="section-eyebrow">Factura de la consulta</p>
+          <h3 id="factura-title" class="font-black text-rose-950">Factura abierta</h3>
+        </div>
+        <button id="btn-close-factura-modal" type="button" class="secondary-button">Cerrar ventana</button>
+      </div>
+      <form id="form-factura" class="space-y-4 text-xs">
+        <input type="hidden" name="consultaId">
+        <label class="block font-bold text-rose-950">Diagnóstico para facturación
+          <textarea name="diagnostico" required maxlength="1000" rows="2" class="w-full mt-1 px-3.5 py-2.5 bg-white border border-rose-200 rounded-xl" placeholder="Diagnóstico relacionado con los procedimientos facturados"></textarea>
+        </label>
+        <section class="billing-panel">
+          <h4>Procedimientos facturados</h4>
+          <p>Agrega procedimientos y cantidades. Solo el administrador puede cambiar el precio unitario.</p>
+          <div id="factura-procedimientos"></div>
+          <button id="btn-add-procedimiento" type="button" class="secondary-button">+ Agregar procedimiento</button>
+          <p id="factura-catalog-status" role="status"></p>
+        </section>
+        <label class="block font-black text-rose-950">Total de la factura ($)
+          <input name="total" type="text" readonly value="0.00" class="w-full mt-1 px-3.5 py-2.5 bg-slate-100 border border-rose-200 rounded-xl text-lg font-black">
+        </label>
+        <p id="factura-message" role="status"></p>
+        <div class="flex flex-wrap justify-end gap-2 pt-3 border-t border-rose-100">
+          <button id="btn-reopen-factura" type="button" class="secondary-button" hidden>Reabrir factura</button>
+          <button id="btn-save-factura" type="submit" class="secondary-button">Guardar borrador</button>
+          <button id="btn-finalize-factura" type="button" class="btn-primary px-5 py-2.5 rounded-xl font-black">Cerrar factura</button>
+        </div>
+      </form>
+    </section>
   </div>
 
   <!-- MODAL: CONFIGURACIÓN DEL CONSULTORIO -->

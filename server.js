@@ -559,6 +559,14 @@ function normalizeBackup(body) {
       billing.validateSnapshot(item.data.procedimientos);
       item.data.costo = billing.total(item.data.procedimientos);
     }
+    if (item.data.factura !== undefined) {
+      const invoice = requireObject(item.data.factura, 'Una factura del respaldo');
+      if (typeof invoice.diagnostico !== 'string' || !invoice.diagnostico.trim() || invoice.diagnostico.length > 1000) throw new HttpError(400, 'Una factura contiene un diagnóstico inválido.');
+      if (!['abierta', 'cerrada'].includes(invoice.estado)) throw new HttpError(400, 'Una factura contiene un estado inválido.');
+      billing.validateSnapshot(invoice.procedimientos);
+      invoice.total = billing.total(invoice.procedimientos);
+      if (invoice.estado === 'cerrada' && typeof invoice.cerradaEn !== 'string') throw new HttpError(400, 'Una factura cerrada no tiene fecha de cierre válida.');
+    }
   }
   return { pacientes, historias, consultas, odontogramas, config, catalogo };
 }
@@ -612,6 +620,7 @@ function isKnownProtectedPath(pathname) {
     pathname === '/api/pacientes' ||
     /^\/api\/pacientes\/\d+(?:\/(?:historia|consultas|odontograma))?$/.test(pathname) ||
     /^\/api\/consultas\/\d+$/.test(pathname) ||
+    /^\/api\/consultas\/\d+\/factura(?:\/(?:cerrar|reabrir))?$/.test(pathname) ||
     pathname === '/api/config' ||
     pathname === '/api/backup' ||
     pathname === '/api/backup/import';
@@ -662,7 +671,7 @@ async function handleCatalog(req, res, pathname, context, auth) {
   requirePermission(auth, 'catalog.write');
   if (!['POST', 'PUT'].includes(req.method) || (req.method === 'POST' && match[1]) || (req.method === 'PUT' && !match[1])) throw new HttpError(404, 'Endpoint no encontrado.');
   const item = billing.catalogItem(requireObject(await readJsonBody(req, bodyLimit)));
-  if (item.tipo === 'procedimiento') requirePermission(auth, 'prices.write');
+  if (item.tipo === 'procedimiento') requirePermission(auth, 'invoice.price');
   let id = match[1] ? positiveId(match[1], 'ID de catálogo') : null;
   if (id) {
     const previous = db.prepare('SELECT tipo FROM catalogo WHERE id = ?').get(id);
@@ -678,21 +687,37 @@ async function handleCatalog(req, res, pathname, context, auth) {
   return true;
 }
 function pricedConsultation(db, auth, incoming, previous = {}) {
+  if (Object.hasOwn(incoming, 'factura')) throw new HttpError(400, 'La factura se administra desde su sección independiente.');
   if (!permissions.has(auth.user.role, 'clinical.write')) {
     for (const field of ['motivo', 'diagnostico', 'tratamiento', 'receta', 'observaciones', 'proximaCita']) {
       if (Object.hasOwn(incoming, field) && incoming[field] !== previous[field] && incoming[field] !== '') throw new HttpError(403, 'Solo el personal clínico autorizado puede registrar diagnósticos y notas clínicas.');
       delete incoming[field];
     }
   }
-  if (Object.hasOwn(incoming, 'procedimientos')) {
-    incoming.procedimientos = billing.lines(incoming.procedimientos, getCatalog(db), permissions.has(auth.user.role, 'prices.write'), previous.procedimientos || []);
-    incoming.costo = billing.total(incoming.procedimientos);
-  } else if (previous.procedimientos) {
-    incoming.costo = billing.total(previous.procedimientos);
-  } else if (Object.hasOwn(incoming, 'costo') && !permissions.has(auth.user.role, 'clinical.write')) {
-    throw new HttpError(403, 'Selecciona procedimientos del catálogo para calcular el importe.');
+  if (Object.hasOwn(incoming, 'procedimientos') || Object.hasOwn(incoming, 'costo')) {
+    throw new HttpError(400, 'Los procedimientos y precios se administran en la factura independiente.');
   }
   return incoming;
+}
+
+function invoiceFromInput(db, auth, body, previous = null) {
+  requireObject(body, 'La factura');
+  for (const field of Object.keys(body)) {
+    if (!['diagnostico', 'procedimientos'].includes(field)) throw new HttpError(400, `El campo ${field} no pertenece a la factura.`);
+  }
+  const diagnostico = Object.hasOwn(body, 'diagnostico') ? String(body.diagnostico || '').trim() : (previous?.diagnostico || '');
+  if (!diagnostico || diagnostico.length > 1000) throw new HttpError(400, 'El diagnóstico de la factura es obligatorio y admite hasta 1000 caracteres.');
+  const sourceLines = Object.hasOwn(body, 'procedimientos') ? body.procedimientos : (previous?.procedimientos || []);
+  const procedimientos = billing.lines(sourceLines, getCatalog(db), permissions.has(auth.user.role, 'invoice.price'), previous?.procedimientos || []);
+  return {
+    diagnostico,
+    procedimientos,
+    total: billing.total(procedimientos),
+    estado: 'abierta',
+    creadaEn: previous?.creadaEn || nowIso(),
+    actualizadaEn: nowIso(),
+    cerradaEn: null
+  };
 }
 
 async function handleApi(req, res, pathname, context) {
@@ -1108,11 +1133,61 @@ async function handleApi(req, res, pathname, context) {
     });
   }
 
+  const invoiceMatch = pathname.match(/^\/api\/consultas\/(\d+)\/factura(?:\/(cerrar|reabrir))?$/);
+  if (invoiceMatch) {
+    const consultationId = positiveId(invoiceMatch[1], 'ID de consulta');
+    const row = db.prepare('SELECT id, paciente_id, data FROM consultas WHERE id = ?').get(consultationId);
+    if (!row) throw new HttpError(404, 'Consulta no encontrada.');
+    const consultation = parseData(row.data);
+    const action = invoiceMatch[2];
+
+    if (!action && method === 'PUT') {
+      requirePermission(auth, 'invoice.write');
+      if (consultation.factura?.estado === 'cerrada') throw new HttpError(409, 'La factura está cerrada. Solo un administrador puede reabrirla.');
+      const factura = invoiceFromInput(db, auth, await readJsonBody(req, bodyLimit), consultation.factura);
+      consultation.factura = factura;
+      runTransaction(db, () => {
+        db.prepare('UPDATE consultas SET data = ? WHERE id = ?').run(JSON.stringify(consultation), consultationId);
+        writeAudit(db, auth.user.id, 'invoice_update', 'consulta', consultationId, { total: factura.total });
+      });
+      return sendJson(res, 200, { ...consultation, id: consultationId, pacienteId: Number(row.paciente_id) });
+    }
+
+    if (action === 'cerrar' && method === 'POST') {
+      requirePermission(auth, 'invoice.write');
+      if (!consultation.factura) throw new HttpError(409, 'Guarda la factura antes de cerrarla.');
+      if (consultation.factura.estado === 'cerrada') throw new HttpError(409, 'La factura ya está cerrada.');
+      if (!consultation.factura.procedimientos?.length) throw new HttpError(400, 'Agrega al menos un procedimiento antes de cerrar la factura.');
+      consultation.factura.estado = 'cerrada';
+      consultation.factura.cerradaEn = nowIso();
+      consultation.factura.actualizadaEn = consultation.factura.cerradaEn;
+      runTransaction(db, () => {
+        db.prepare('UPDATE consultas SET data = ? WHERE id = ?').run(JSON.stringify(consultation), consultationId);
+        writeAudit(db, auth.user.id, 'invoice_close', 'consulta', consultationId, { total: consultation.factura.total });
+      });
+      return sendJson(res, 200, { ...consultation, id: consultationId, pacienteId: Number(row.paciente_id) });
+    }
+
+    if (action === 'reabrir' && method === 'POST') {
+      requirePermission(auth, 'invoice.reopen');
+      if (!consultation.factura || consultation.factura.estado !== 'cerrada') throw new HttpError(409, 'La factura no está cerrada.');
+      consultation.factura.estado = 'abierta';
+      consultation.factura.cerradaEn = null;
+      consultation.factura.actualizadaEn = nowIso();
+      runTransaction(db, () => {
+        db.prepare('UPDATE consultas SET data = ? WHERE id = ?').run(JSON.stringify(consultation), consultationId);
+        writeAudit(db, auth.user.id, 'invoice_reopen', 'consulta', consultationId);
+      });
+      return sendJson(res, 200, { ...consultation, id: consultationId, pacienteId: Number(row.paciente_id) });
+    }
+  }
+
   if (consultationMatch && method === 'DELETE') {
     requireRole(auth, CLINICAL_WRITERS);
     const consultationId = positiveId(consultationMatch[1], 'ID de consulta');
-    const row = db.prepare('SELECT paciente_id FROM consultas WHERE id = ?').get(consultationId);
+    const row = db.prepare('SELECT paciente_id, data FROM consultas WHERE id = ?').get(consultationId);
     if (!row) throw new HttpError(404, 'Consulta no encontrada.');
+    if (parseData(row.data).factura?.estado === 'cerrada') requirePermission(auth, 'invoice.reopen');
     runTransaction(db, () => {
       db.prepare('DELETE FROM consultas WHERE id = ?').run(consultationId);
       writeAudit(db, auth.user.id, 'consultation_delete', 'consulta', consultationId, {

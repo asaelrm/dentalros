@@ -127,6 +127,35 @@ class LocalOdontoDB extends OdontoDB {
     });
   }
   deleteConsulta(id) { return this.access(true, data => { data.consultas = data.consultas.filter(item => item.id !== Number(id)); return true; }); }
+  saveFactura(consultaId, value) {
+    return this.access(true, data => {
+      const consultation = data.consultas.find(item => item.id === Number(consultaId));
+      if (!consultation) throw new Error('Consulta no encontrada.');
+      if (consultation.factura?.estado === 'cerrada') throw new Error('La factura está cerrada. Debes reabrirla antes de modificarla.');
+      const diagnostico = String(value.diagnostico || '').trim();
+      if (!diagnostico) throw new Error('El diagnóstico de la factura es obligatorio.');
+      const procedimientos = window.DentalBilling.lines(value.procedimientos || [], data.catalogo || [], true, consultation.factura?.procedimientos || []);
+      consultation.factura = { diagnostico, procedimientos, total: window.DentalBilling.total(procedimientos), estado: 'abierta', creadaEn: consultation.factura?.creadaEn || new Date().toISOString(), actualizadaEn: new Date().toISOString(), cerradaEn: null };
+      return structuredClone(consultation);
+    });
+  }
+  closeFactura(consultaId) {
+    return this.access(true, data => {
+      const consultation = data.consultas.find(item => item.id === Number(consultaId));
+      if (!consultation?.factura) throw new Error('Guarda la factura antes de cerrarla.');
+      if (!consultation.factura.procedimientos.length) throw new Error('Agrega al menos un procedimiento antes de cerrar la factura.');
+      consultation.factura.estado = 'cerrada'; consultation.factura.cerradaEn = new Date().toISOString();
+      return structuredClone(consultation);
+    });
+  }
+  reopenFactura(consultaId) {
+    return this.access(true, data => {
+      const consultation = data.consultas.find(item => item.id === Number(consultaId));
+      if (consultation?.factura?.estado !== 'cerrada') throw new Error('La factura no está cerrada.');
+      consultation.factura.estado = 'abierta'; consultation.factura.cerradaEn = null;
+      return structuredClone(consultation);
+    });
+  }
   getConfig() { return this.access(false, data => data.config); }
   saveConfig(config) { return this.access(true, data => { data.config = { ...data.config, ...config }; return true; }); }
   exportAllData() {
@@ -171,6 +200,10 @@ class LocalOdontoDB extends OdontoDB {
       } else incoming.catalogo = data.catalogo || [];
       for (const item of incoming.consultas) {
         if (item.procedimientos !== undefined) item.costo = window.DentalBilling.total(window.DentalBilling.validateSnapshot(item.procedimientos));
+        if (item.factura !== undefined) {
+          if (!item.factura || typeof item.factura.diagnostico !== 'string' || !['abierta', 'cerrada'].includes(item.factura.estado)) throw new Error('Factura inválida en el respaldo.');
+          item.factura.total = window.DentalBilling.total(window.DentalBilling.validateSnapshot(item.factura.procedimientos));
+        }
       }
       Object.assign(data, incoming);
       return true;

@@ -39,8 +39,8 @@ Después de crear esa cuenta, la configuración inicial se bloquea y solamente u
 | Perfil | Consultar expedientes | Modificar datos clínicos | Usuarios, configuración y respaldos |
 |---|---:|---:|---:|
 | Administrador | Sí | Sí | Sí |
-| Doctor/a | Sí | Sí; también catálogo y precios | No |
-| Secretaría | Sí | Pacientes, citas y procedimientos con precios definidos | No |
+| Doctor/a | Sí | Historia clínica, diagnósticos, consultas y facturas | No |
+| Secretaría | Sí | Pacientes, citas y facturas con precios definidos | No |
 | Auxiliar de odontología | Sí | No | No |
 | Soporte técnico | No | No | Usuarios no administrativos, sin acceso clínico |
 | Editor | Sí | Sí | No |
@@ -70,9 +70,11 @@ Si SMTP rechaza un correo, la cuenta queda pendiente y la interfaz lo informa; c
 
 ## Diagnósticos, procedimientos e importes
 
-Administradores y doctores gestionan el catálogo desde el menú de usuario. Cada procedimiento tiene un precio predeterminado y puede asociarse con un diagnóstico durante una consulta. En una visita se pueden añadir varios procedimientos y cantidades; DentalRos calcula cada subtotal y suma el total automáticamente.
+La historia clínica y la factura están separadas. La consulta conserva motivo, diagnóstico clínico, tratamiento, receta y evolución. Su factura contiene un diagnóstico facturable, procedimientos, cantidades, precios unitarios, subtotales y total.
 
-El precio y el nombre usados quedan guardados como una copia histórica dentro de la consulta. Cambiar el catálogo afecta las visitas nuevas, pero no modifica cobros anteriores. El servidor recalcula los importes y rechaza precios manipulados por perfiles sin permiso. Los respaldos JSON incluyen el catálogo y el desglose de cada consulta.
+El administrador crea procedimientos y define sus precios desde el catálogo. Administradores y doctores pueden registrar diagnósticos. El personal con permiso de facturación puede preparar un borrador usando los precios definidos y cerrar la factura. Una factura cerrada queda bloqueada; solo el administrador puede reabrirla y solo el administrador puede modificar precios.
+
+El precio y el nombre usados quedan guardados como una copia histórica dentro de la factura. Cambiar el catálogo afecta las facturas nuevas, pero no modifica cobros anteriores. El servidor recalcula los importes, bloquea facturas cerradas y registra cierres y reaperturas en auditoría. Los respaldos JSON incluyen el catálogo y el desglose de cada factura.
 
 ## Contraseñas
 

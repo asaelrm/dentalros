@@ -25,6 +25,11 @@ test('Pages conserva datos, relaciones, respaldos y escrituras concurrentes', as
   await db.saveOdontograma(ids[0], { '11': { estado: 'sano' } }, 'Revisión');
   const consultation = await db.saveConsulta({ pacienteId: ids[0], costo: 25, fecha: '2026-09-13' });
   await db.saveConsulta({ id: consultation, costo: 40 });
+  const procedure = await db.saveCatalogo({ tipo: 'procedimiento', nombre: 'Limpieza', precio: 30, activo: true });
+  await db.saveFactura(consultation, { diagnostico: 'Profilaxis', procedimientos: [{ procedimientoId: procedure.id, cantidad: 2 }] });
+  await db.closeFactura(consultation);
+  await assert.rejects(db.saveFactura(consultation, { diagnostico: 'Cambio', procedimientos: [] }), /cerrada/);
+  await db.reopenFactura(consultation);
   await db.savePaciente({ id: ids[0], nombre: 'Ana María', apellido: 'Prueba' });
   await db.saveConfig({ nombreClinica: 'Clínica de prueba' });
   const reloaded = load();
@@ -32,6 +37,7 @@ test('Pages conserva datos, relaciones, respaldos y escrituras concurrentes', as
   assert.equal((await reloaded.getHistoria(ids[0])).alergias, 'Ninguna');
   assert.equal((await reloaded.getOdontograma(ids[0])).notasGenerales, 'Revisión');
   assert.equal((await reloaded.getConsultas(ids[0]))[0].costo, 40);
+  assert.equal((await reloaded.getConsultas(ids[0]))[0].factura.total, 60);
   assert.equal((await reloaded.getConfig()).nombreClinica, 'Clínica de prueba');
   const backup = await db.exportAllData();
   await assert.rejects(db.importAllData({ pacientes: [] , consultas: [{ id: 1, pacienteId: 123 }] }), /Paciente no encontrado/);

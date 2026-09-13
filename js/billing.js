@@ -15,7 +15,7 @@
     return input.map(line => {
       if (!line || typeof line !== 'object') fail('Procedimiento inválido.');
       const item = catalog.find(item => item.id === Number(line.procedimientoId) && item.tipo === 'procedimiento');
-      const old = previous.find(item => item.procedimientoId === Number(line.procedimientoId) && item.diagnosticoId === (line.diagnosticoId ? Number(line.diagnosticoId) : null));
+      const old = previous.find(item => item.procedimientoId === Number(line.procedimientoId));
       if (!item || (!item.activo && !old)) fail('El procedimiento seleccionado ya no está disponible.');
       const quantity = Number(line.cantidad);
       if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100) fail('La cantidad debe ser un entero entre 1 y 100.');
@@ -27,7 +27,7 @@
         if (!canPrice && requested !== price) fail('No tienes permiso para cambiar precios.');
         price = requested;
       }
-      return { procedimientoId: item.id, nombre: old?.nombre ?? item.nombre, diagnosticoId: diagnosis?.id ?? null, diagnostico: old?.diagnostico ?? diagnosis?.nombre ?? '', cantidad: quantity, precioCentavos: price, subtotalCentavos: price * quantity };
+      return { procedimientoId: item.id, nombre: old?.nombre ?? item.nombre, diagnosticoId: diagnosis?.id ?? null, diagnostico: diagnosis?.nombre ?? '', cantidad: quantity, precioCentavos: price, subtotalCentavos: price * quantity };
     });
   }
   function total(items) { return items.reduce((sum, item) => sum + item.subtotalCentavos, 0) / 100; }

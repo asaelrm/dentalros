@@ -314,7 +314,7 @@ test('API odontologica: integracion completa', async (t) => {
       const consultation = await request(`/api/pacientes/${patientId}/consultas`, {
         method: 'POST',
         cookie: editorCookie,
-        body: { fecha: '2026-09-12', motivo: 'Control', costo: 75 }
+        body: { fecha: '2026-09-12', motivo: 'Control' }
       });
       assert.equal(consultation.status, 201);
       assert.equal(consultation.data.pacienteId, patientId);
