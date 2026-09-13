@@ -11,6 +11,13 @@ const DEFAULT_CONFIG = Object.freeze({
   telefono: '+1 (809) 000-0000',
   email: 'contacto@dentalros.com',
   direccion: 'Av. Principal #123, Consultorio 4B',
+  fiscalEnabled: false,
+  remindersEnabled: false,
+  permanentPublishingEnabled: false,
+  rnc: '',
+  ncfSequence: '',
+  reminderChannel: '',
+  publicDomain: '',
   piePagina: 'DentalRos - Hacemos tu sonrisa florecer.'
 });
 

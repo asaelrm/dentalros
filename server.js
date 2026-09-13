@@ -477,8 +477,12 @@ function validateConfigInput(body) {
   const data = cleanData(body, ['id']);
   validateKnownStrings(data, [
     'nombreClinica', 'nombreDoctor', 'especialidad', 'colegiatura', 'telefono',
-    'email', 'direccion', 'piePagina'
+    'email', 'direccion', 'piePagina', 'rnc', 'ncfSequence', 'reminderChannel', 'publicDomain'
   ], 'configuracion');
+  for (const field of ['fiscalEnabled', 'remindersEnabled', 'permanentPublishingEnabled']) {
+    if (data[field] !== undefined && typeof data[field] !== 'boolean') throw new HttpError(400, `configuracion.${field} debe ser verdadero o falso.`);
+    if (data[field] === true) throw new HttpError(409, 'Esta función requiere completar primero sus datos de activación.');
+  }
   return data;
 }
 
