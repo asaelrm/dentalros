@@ -766,12 +766,15 @@
       </div>
       <form id="form-factura" class="space-y-4 text-xs">
         <input type="hidden" name="consultaId">
+        <label class="block font-bold text-rose-950">Tarifario aplicado
+          <select name="tariffInsuranceId" id="invoice-tariff-insurance" class="w-full mt-1 px-3.5 py-2.5 bg-white border border-rose-200 rounded-xl"></select>
+        </label>
         <label class="block font-bold text-rose-950">Diagnóstico para facturación
           <textarea name="diagnostico" required maxlength="1000" rows="2" class="w-full mt-1 px-3.5 py-2.5 bg-white border border-rose-200 rounded-xl" placeholder="Diagnóstico relacionado con los procedimientos facturados"></textarea>
         </label>
         <section class="billing-panel">
           <h4>Procedimientos facturados</h4>
-          <p>Agrega procedimientos y cantidades. Solo el administrador puede cambiar el precio unitario.</p>
+          <p>Los precios se cargan automáticamente desde el tarifario seleccionado.</p>
           <div id="factura-procedimientos"></div>
           <button id="btn-add-procedimiento" type="button" class="secondary-button">+ Agregar procedimiento</button>
           <p id="factura-catalog-status" role="status"></p>
@@ -1033,6 +1036,13 @@
       </form>
       <p id="catalog-message" role="status"></p>
       <div id="catalog-list" class="mt-4"></div>
+      <section id="tariff-admin" class="mt-6 pt-5 border-t border-rose-200">
+        <h4 class="font-black text-rose-950">Tarifario / Precios</h4>
+        <p class="text-xs text-slate-500 mb-3">Selecciona una ARS y edita varios precios contratados.</p>
+        <div class="flex flex-wrap gap-2"><select id="tariff-insurance" class="flex-1 px-3 py-2 border rounded-xl"></select><input id="tariff-search" class="flex-1 px-3 py-2 border rounded-xl" placeholder="Buscar servicio"></div>
+        <div id="tariff-price-list" class="mt-3 space-y-2"></div>
+        <button id="btn-save-tariff" type="button" class="btn-primary px-5 py-2.5 rounded-xl mt-3 font-black">Guardar cambios</button>
+      </section>
     </section>
   </div>
 

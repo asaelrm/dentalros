@@ -146,6 +146,14 @@ function openDatabase(filename) {
         created_at TEXT NOT NULL
       ) STRICT;
       CREATE INDEX IF NOT EXISTS idx_clinical_attachments_patient ON clinical_attachments(patient_id, created_at);
+      CREATE TABLE IF NOT EXISTS catalog_prices (
+        catalog_id INTEGER NOT NULL REFERENCES catalogo(id) ON DELETE CASCADE,
+        insurance_id INTEGER NOT NULL REFERENCES insurers(id) ON DELETE CASCADE,
+        price_centavos INTEGER NOT NULL CHECK (price_centavos >= 0),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (catalog_id, insurance_id)
+      ) STRICT;
     `);
     const insurers = [
       ['SeNaSa','SENASA'],['Primera ARS','PRIMERA'],['MAPFRE Salud ARS','MAPFRE'],['ARS Universal','UNIVERSAL'],
@@ -157,6 +165,9 @@ function openDatabase(filename) {
     ];
     const insertInsurer = db.prepare('INSERT OR IGNORE INTO insurers (nombre, codigo) VALUES (?, ?)');
     for (const insurer of insurers) insertInsurer.run(...insurer);
+    db.exec(`INSERT OR IGNORE INTO catalog_prices (catalog_id, insurance_id, price_centavos, created_at, updated_at)
+      SELECT c.id, i.id, c.precio_centavos, datetime('now'), datetime('now') FROM catalogo c CROSS JOIN insurers i
+      WHERE c.tipo = 'procedimiento' AND i.codigo = 'PRIVADO'`);
   });
 
   db.prepare('INSERT OR IGNORE INTO configuracion (id, data) VALUES (?, ?)')

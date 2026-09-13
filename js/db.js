@@ -58,7 +58,9 @@ class OdontoDB {
     return true;
   }
 
-  async getCatalogo() { return this.api.request('/api/catalogo'); }
+  async getCatalogo(insuranceId = null) { return this.api.request(`/api/catalogo${insuranceId ? `?insuranceId=${Number(insuranceId)}` : ''}`); }
+  async getTarifarios() { return this.api.request('/api/tarifarios'); }
+  async saveTarifario(insuranceId, prices) { return this.api.request('/api/tarifarios', { method: 'PUT', body: { insuranceId, prices } }); }
 
   async saveCatalogo(item) {
     return this.api.request(item.id ? `/api/catalogo/${Number(item.id)}` : '/api/catalogo', { method: item.id ? 'PUT' : 'POST', body: item });

@@ -693,7 +693,7 @@ function isKnownProtectedPath(pathname) {
     pathname === '/api/insurers' ||
     pathname === '/api/cash' ||
     /^\/api\/consultas\/\d+\/charge$/.test(pathname) ||
-    pathname === '/api/catalogo' || /^\/api\/catalogo\/\d+$/.test(pathname) ||
+    pathname === '/api/catalogo' || /^\/api\/catalogo\/\d+$/.test(pathname) || pathname === '/api/tarifarios' ||
     /^\/api\/users\/\d+(?:\/reset-password)?$/.test(pathname) ||
     pathname === '/api/pacientes' ||
     /^\/api\/pacientes\/\d+(?:\/(?:historia|consultas|odontograma|adjuntos))?$/.test(pathname) ||
@@ -739,15 +739,18 @@ async function deliverInvitation(db, userId, actorId, mailer) {
     return { invitationSent: false, deliveryError: 'La cuenta existe, pero no se pudo enviar el correo. Revisa SMTP y utiliza Enviar enlace otra vez.' };
   }
 }
-function getCatalog(db) {
-  return db.prepare('SELECT * FROM catalogo ORDER BY tipo, nombre, id').all().map(row => ({ id: Number(row.id), tipo: row.tipo, nombre: row.nombre, precioCentavos: Number(row.precio_centavos), activo: Boolean(row.activo) }));
+function getCatalog(db, insuranceId = null) {
+  if (!insuranceId) insuranceId = db.prepare("SELECT id FROM insurers WHERE codigo = 'PRIVADO'").get()?.id || null;
+  return db.prepare(`SELECT c.*, cp.price_centavos AS tariff_price FROM catalogo c
+    LEFT JOIN catalog_prices cp ON cp.catalog_id = c.id AND cp.insurance_id = ? ORDER BY c.tipo, c.nombre, c.id`).all(insuranceId).map(row => ({ id: Number(row.id), tipo: row.tipo, nombre: row.nombre, precioCentavos: row.tariff_price == null ? null : Number(row.tariff_price), activo: Boolean(row.activo) }));
 }
 async function handleCatalog(req, res, pathname, context, auth) {
   const { db, bodyLimit } = context;
   const match = pathname.match(/^\/api\/catalogo(?:\/(\d+))?$/);
   if (!match) return false;
   if (req.method === 'GET' && !match[1]) {
-    const catalog = getCatalog(db);
+    const requestedInsurance = new URL(req.url, 'http://localhost').searchParams.get('insuranceId');
+    const catalog = getCatalog(db, requestedInsurance ? positiveId(requestedInsurance, 'Tarifario') : null);
     sendJson(res, 200, permissions.has(auth.user.role, 'invoice.write', auth.user.invoiceAccess) ? catalog : catalog.filter(item => item.tipo === 'diagnostico'));
     return true;
   }
@@ -764,6 +767,11 @@ async function handleCatalog(req, res, pathname, context, auth) {
   runTransaction(db, () => {
     if (id) db.prepare('UPDATE catalogo SET nombre = ?, precio_centavos = ?, activo = ? WHERE id = ?').run(item.nombre, item.precioCentavos, Number(item.activo), id);
     else id = Number(db.prepare('INSERT INTO catalogo (tipo, nombre, precio_centavos, activo) VALUES (?, ?, ?, ?)').run(item.tipo, item.nombre, item.precioCentavos, Number(item.activo)).lastInsertRowid);
+    if (item.tipo === 'procedimiento') {
+      const privateInsurer = db.prepare("SELECT id FROM insurers WHERE codigo = 'PRIVADO'").get();
+      db.prepare(`INSERT INTO catalog_prices (catalog_id, insurance_id, price_centavos, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(catalog_id, insurance_id) DO UPDATE SET price_centavos=excluded.price_centavos, updated_at=excluded.updated_at`).run(id, privateInsurer.id, item.precioCentavos, nowIso(), nowIso());
+    }
     writeAudit(db, auth.user.id, 'catalog_save', 'catalogo', id);
   });
   sendJson(res, req.method === 'POST' ? 201 : 200, { ...item, id });
@@ -783,15 +791,30 @@ function pricedConsultation(db, auth, incoming, previous = {}) {
   return incoming;
 }
 
-function invoiceFromInput(db, auth, body, previous = null) {
+function invoiceFromInput(db, auth, body, previous = null, patientId = null) {
   requireObject(body, 'La factura');
   for (const field of Object.keys(body)) {
-    if (!['diagnostico', 'procedimientos'].includes(field)) throw new HttpError(400, `El campo ${field} no pertenece a la factura.`);
+    if (!['diagnostico', 'procedimientos', 'tariffInsuranceId'].includes(field)) throw new HttpError(400, `El campo ${field} no pertenece a la factura.`);
   }
   const diagnostico = Object.hasOwn(body, 'diagnostico') ? String(body.diagnostico || '').trim() : (previous?.diagnostico || '');
   if (!diagnostico || diagnostico.length > 1000) throw new HttpError(400, 'El diagnóstico de la factura es obligatorio y admite hasta 1000 caracteres.');
   const sourceLines = Object.hasOwn(body, 'procedimientos') ? body.procedimientos : (previous?.procedimientos || []);
-  const procedimientos = billing.lines(sourceLines, getCatalog(db), permissions.has(auth.user.role, 'invoice.price', auth.user.invoiceAccess), previous?.procedimientos || []);
+  const patient = patientId ? db.prepare('SELECT insurance_id FROM pacientes WHERE id = ?').get(patientId) : null;
+  const privateInsurer = db.prepare("SELECT id FROM insurers WHERE codigo = 'PRIVADO'").get();
+  const tariffInsuranceId = body.tariffInsuranceId ? positiveId(body.tariffInsuranceId, 'Tarifario') : (patient?.insurance_id || privateInsurer.id);
+  const insurer = db.prepare('SELECT id, nombre FROM insurers WHERE id = ? AND activo = 1').get(tariffInsuranceId);
+  if (!insurer) throw new HttpError(400, 'El tarifario seleccionado no existe.');
+  const catalog = getCatalog(db, tariffInsuranceId);
+  for (const line of sourceLines) {
+    const item = catalog.find(entry => entry.id === Number(line.procedimientoId));
+    if (!previous && (!item || item.precioCentavos == null)) throw new HttpError(409, `El procedimiento no tiene tarifa configurada para ${insurer.nombre}.`);
+    if (!previous && item) {
+      const tariffPrice = item.precioCentavos / 100;
+      if (line.precio !== undefined && Number(line.precio) !== tariffPrice) throw new HttpError(400, 'El precio debe coincidir con el tarifario seleccionado.');
+      line.precio = tariffPrice;
+    }
+  }
+  const procedimientos = billing.lines(sourceLines, catalog, true, previous?.procedimientos || []);
   return {
     diagnostico,
     procedimientos,
@@ -799,7 +822,9 @@ function invoiceFromInput(db, auth, body, previous = null) {
     estado: 'abierta',
     creadaEn: previous?.creadaEn || nowIso(),
     actualizadaEn: nowIso(),
-    cerradaEn: null
+    cerradaEn: null,
+    tariffInsuranceId: Number(tariffInsuranceId),
+    tariffName: insurer.nombre
   };
 }
 
@@ -900,6 +925,31 @@ async function handleApi(req, res, pathname, context) {
 
   const auth = authenticate(req, db);
   if (!auth) throw new HttpError(401, 'Debes iniciar sesion.');
+
+  if (pathname === '/api/tarifarios' && method === 'GET') {
+    requirePermission(auth, 'invoice.price');
+    const prices = db.prepare('SELECT catalog_id, insurance_id, price_centavos FROM catalog_prices').all();
+    return sendJson(res, 200, prices.map(item => ({ catalogId: Number(item.catalog_id), insuranceId: Number(item.insurance_id), priceCentavos: Number(item.price_centavos) })));
+  }
+  if (pathname === '/api/tarifarios' && method === 'PUT') {
+    requirePermission(auth, 'invoice.price');
+    const body = requireObject(await readJsonBody(req, bodyLimit));
+    const insuranceId = positiveId(body.insuranceId, 'Tarifario');
+    if (!db.prepare('SELECT 1 FROM insurers WHERE id = ?').get(insuranceId) || !Array.isArray(body.prices) || body.prices.length > 10000) throw new HttpError(400, 'Tarifario inválido.');
+    runTransaction(db, () => {
+      const save = db.prepare(`INSERT INTO catalog_prices (catalog_id, insurance_id, price_centavos, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(catalog_id, insurance_id) DO UPDATE SET price_centavos=excluded.price_centavos, updated_at=excluded.updated_at`);
+      const remove = db.prepare('DELETE FROM catalog_prices WHERE catalog_id = ? AND insurance_id = ?');
+      for (const entry of body.prices) {
+        const catalogId = positiveId(entry.catalogId, 'Servicio');
+        if (!db.prepare("SELECT 1 FROM catalogo WHERE id = ? AND tipo = 'procedimiento'").get(catalogId)) throw new HttpError(400, 'El tarifario contiene un servicio inválido.');
+        if (entry.price === '' || entry.price == null) remove.run(catalogId, insuranceId);
+        else save.run(catalogId, insuranceId, billing.cents(Number(entry.price)), nowIso(), nowIso());
+      }
+      writeAudit(db, auth.user.id, 'tariff_update', 'insurance', insuranceId, { prices: body.prices.length });
+    });
+    return sendJson(res, 200, { success: true });
+  }
 
   if (pathname === '/api/auth/me' && method === 'GET') {
     return sendJson(res, 200, { user: auth.user });
@@ -1376,7 +1426,7 @@ async function handleApi(req, res, pathname, context) {
     if (!action && method === 'PUT') {
       requirePermission(auth, 'invoice.write');
       if (consultation.factura?.estado === 'cerrada') throw new HttpError(409, 'La factura está cerrada. Solo un administrador puede reabrirla.');
-      const factura = invoiceFromInput(db, auth, await readJsonBody(req, bodyLimit), consultation.factura);
+      const factura = invoiceFromInput(db, auth, await readJsonBody(req, bodyLimit), consultation.factura, Number(row.paciente_id));
       consultation.factura = factura;
       runTransaction(db, () => {
         db.prepare('UPDATE consultas SET data = ? WHERE id = ?').run(JSON.stringify(consultation), consultationId);

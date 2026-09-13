@@ -8,15 +8,23 @@ class CatalogManager {
     document.getElementById('btn-new-catalogo').addEventListener('click', () => this.resetForm());
     document.getElementById('form-catalogo').addEventListener('submit', event => this.save(event));
     document.getElementById('form-catalogo').tipo.addEventListener('change', () => this.priceState());
+    document.getElementById('tariff-insurance').addEventListener('change', () => this.renderTariff());
+    document.getElementById('tariff-search').addEventListener('input', () => this.renderTariff());
+    document.getElementById('btn-save-tariff').addEventListener('click', () => this.saveTariff());
+    document.getElementById('invoice-tariff-insurance').addEventListener('change', async event => {
+      await this.load(Number(event.target.value));
+      this.lines.forEach(line => { const item = this.items.find(i => i.id === line.procedimientoId); line.precio = item?.precioCentavos == null ? null : item.precioCentavos / 100; });
+      this.renderLines();
+    });
     document.getElementById('btn-add-procedimiento').addEventListener('click', () => {
-      const first = this.items.find(item => item.tipo === 'procedimiento' && item.activo);
+      const first = this.items.find(item => item.tipo === 'procedimiento' && item.activo && item.precioCentavos != null);
       if (!first) return;
       this.lines.push({ procedimientoId: first.id, diagnosticoId: null, cantidad: 1, precio: first.precioCentavos / 100 });
       this.renderLines();
     });
   }
   allowed(permission) { return window.authManager.hasPermission(permission); }
-  async load() { this.items = await window.odontoDB.getCatalogo(); }
+  async load(insuranceId = null) { this.items = await window.odontoDB.getCatalogo(insuranceId); }
   priceState() {
     const form = document.getElementById('form-catalogo');
     form.precio.disabled = form.tipo.value !== 'procedimiento' || !this.allowed('invoice.price');
@@ -28,7 +36,7 @@ class CatalogManager {
     document.getElementById('form-catalogo').hidden = !this.allowed('catalog.write');
     document.querySelector('#form-catalogo option[value="procedimiento"]').disabled = !this.allowed('invoice.price');
     this.resetForm();
-    try { await this.load(); this.renderCatalog(); }
+    try { await this.load(); this.renderCatalog(); await this.prepareTariffAdmin(); }
     catch (error) { document.getElementById('catalog-message').textContent = error.message; }
   }
   renderCatalog() {
@@ -42,6 +50,28 @@ class CatalogManager {
       form.nombre.value = item.nombre; form.precio.value = (item.precioCentavos / 100).toFixed(2); form.activo.checked = item.activo;
       this.priceState(); form.nombre.focus();
     }));
+  }
+  async prepareTariffAdmin() {
+    const panel = document.getElementById('tariff-admin');
+    panel.hidden = !this.allowed('invoice.price');
+    if (panel.hidden) return;
+    const insurers = await window.odontoDB.getInsurers();
+    const select = document.getElementById('tariff-insurance');
+    select.innerHTML = insurers.map(i => `<option value="${i.id}">${window.escapeHTML(i.nombre)}</option>`).join('');
+    await this.renderTariff();
+  }
+  async renderTariff() {
+    const insuranceId = Number(document.getElementById('tariff-insurance').value);
+    if (!insuranceId) return;
+    const items = await window.odontoDB.getCatalogo(insuranceId);
+    const search = document.getElementById('tariff-search').value.trim().toLowerCase();
+    document.getElementById('tariff-price-list').innerHTML = items.filter(i => i.tipo === 'procedimiento' && i.nombre.toLowerCase().includes(search)).map(i => `<label class="grid grid-cols-[1fr_140px] gap-3 items-center p-2 bg-white rounded-xl border"><span class="font-bold">${window.escapeHTML(i.nombre)}</span><input data-catalog-id="${i.id}" type="number" min="0" step="0.01" class="px-3 py-2 border rounded-lg" placeholder="Sin tarifa" value="${i.precioCentavos == null ? '' : (i.precioCentavos / 100).toFixed(2)}"></label>`).join('');
+  }
+  async saveTariff() {
+    const insuranceId = Number(document.getElementById('tariff-insurance').value);
+    const prices = [...document.querySelectorAll('#tariff-price-list [data-catalog-id]')].map(input => ({ catalogId: Number(input.dataset.catalogId), price: input.value }));
+    try { await window.odontoDB.saveTarifario(insuranceId, prices); document.getElementById('catalog-message').textContent = 'Tarifario actualizado.'; await this.renderTariff(); }
+    catch (error) { document.getElementById('catalog-message').textContent = error.message; }
   }
   async save(event) {
     event.preventDefault();
@@ -66,18 +96,22 @@ class CatalogManager {
     status.textContent = 'Cargando catálogo…';
     document.getElementById('btn-add-procedimiento').disabled = true;
     try {
-      await this.load();
+      const insurers = await window.odontoDB.getInsurers();
+      const select = document.getElementById('invoice-tariff-insurance');
+      select.innerHTML = insurers.map(i => `<option value="${i.id}">${window.escapeHTML(i.nombre)}</option>`).join('');
+      select.value = String(invoice?.tariffInsuranceId || window.app.currentPaciente?.insuranceId || insurers.find(i => i.codigo === 'PRIVADO')?.id || '');
+      await this.load(Number(select.value));
       this.renderLines();
-      const available = this.items.some(item => item.tipo === 'procedimiento' && item.activo);
+      const available = this.items.some(item => item.tipo === 'procedimiento' && item.activo && item.precioCentavos != null);
       document.getElementById('btn-add-procedimiento').disabled = !available;
-      status.textContent = available ? '' : 'Todavía no hay procedimientos disponibles. Solicita su registro en Catálogo y precios.';
+      status.textContent = available ? '' : 'No hay procedimientos con tarifa configurada para esta ARS.';
     } catch (error) { status.textContent = error.message; }
   }
   renderLines() {
     const escape = window.escapeHTML;
     const list = document.getElementById('factura-procedimientos');
     list.innerHTML = this.lines.map((line, index) => `<div class="procedure-line" data-index="${index}">
-      <label>Procedimiento<select data-field="procedimientoId">${this.items.filter(item => item.tipo === 'procedimiento' && (item.activo || item.id === line.procedimientoId)).map(item => `<option value="${item.id}" ${item.id === line.procedimientoId ? 'selected' : ''}>${escape(item.nombre)}</option>`).join('')}</select></label>
+      <label>Procedimiento<select data-field="procedimientoId">${this.items.filter(item => item.tipo === 'procedimiento' && (item.activo || item.id === line.procedimientoId)).map(item => `<option value="${item.id}" ${item.id === line.procedimientoId ? 'selected' : ''}>${escape(item.nombre)}${item.precioCentavos == null ? ' · Sin tarifa' : ''}</option>`).join('')}</select></label>
       <label>Diagnóstico asociado<select data-field="diagnosticoId"><option value="">Sin asociar</option>${this.items.filter(item => item.tipo === 'diagnostico' && (item.activo || item.id === line.diagnosticoId)).map(item => `<option value="${item.id}" ${item.id === line.diagnosticoId ? 'selected' : ''}>${escape(item.nombre)}</option>`).join('')}</select></label>
       <label>Cantidad<input data-field="cantidad" type="number" min="1" max="100" step="1" required value="${line.cantidad}"></label>
       <label>Precio unitario ($)<input data-field="precio" type="number" min="0" max="10000000" step="0.01" required value="${line.precio}" ${this.allowed('invoice.price') ? '' : 'readonly'}></label>
@@ -88,7 +122,8 @@ class CatalogManager {
       row.querySelectorAll('[data-field]').forEach(input => input.addEventListener('input', () => {
         this.lines[index][input.dataset.field] = input.value === '' && input.dataset.field === 'diagnosticoId' ? null : Number(input.value);
         if (input.dataset.field === 'procedimientoId') {
-          this.lines[index].precio = this.items.find(item => item.id === Number(input.value)).precioCentavos / 100;
+          const configured = this.items.find(item => item.id === Number(input.value)).precioCentavos;
+          this.lines[index].precio = configured == null ? null : configured / 100;
           row.querySelector('[data-field="precio"]').value = this.lines[index].precio;
         }
         this.updateTotal();

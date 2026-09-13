@@ -86,6 +86,10 @@ El seguro, la afiliación, la póliza y el número de autorización aparecen en 
 
 La Historia Clínica permite adjuntar imágenes panorámicas JPG, PNG o WEBP, archivos PDF y documentos DOC/DOCX de hasta 10 MB. Los adjuntos quedan relacionados con el paciente, se guardan en la base de datos persistente de Docker y pueden abrirse desde el expediente. Los usuarios con permiso clínico pueden cargar y eliminar archivos; los demás usuarios clínicos pueden consultarlos.
 
+## Tarifarios por seguro
+
+Cada procedimiento tiene tarifas relacionadas por aseguradora mediante `catalog_prices`; el precio privado existente se conserva automáticamente. Desde **Diagnósticos y procedimientos > Tarifario / Precios**, el administrador selecciona una ARS y edita varios importes a la vez. Al crear una factura se selecciona automáticamente el seguro del paciente, aunque puede cambiarse el tarifario manualmente. Si falta un precio contratado, el sistema lo informa y evita facturar un importe incorrecto. Cada factura conserva la tarifa, el nombre del tarifario y el precio histórico aplicado.
+
 ## Caja y cobros
 
 Los perfiles Administrador y Secretaría tienen acceso a **Caja**. Solo se pueden cobrar facturas cerradas y cada factura admite un único cobro por su monto total. El movimiento conserva método de pago, referencia, usuario que cobró y fecha/hora. Una factura cobrada no puede reabrirse ni eliminarse.

@@ -1043,6 +1043,7 @@ class OdontoApp {
     try {
       const saved = await window.odontoDB.saveFactura(consultaId, {
         diagnostico: form.diagnostico.value.trim(),
+        tariffInsuranceId: Number(form.tariffInsuranceId.value),
         procedimientos: window.catalogManager.getLines()
       });
       this.currentConsultas = this.currentConsultas.map(item => item.id === consultaId ? saved : item);
