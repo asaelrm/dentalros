@@ -182,8 +182,8 @@ class LocalOdontoDB extends OdontoDB {
       const pendingInvoices = data.consultas.filter(item => item.factura?.estado === 'cerrada' && !paidIds.has(item.id)).map(item => {
         const patient = this.requirePatient(data, item.pacienteId); return { consultationId: item.id, patientId: item.pacienteId, patientName: `${patient.nombre} ${patient.apellido}`, date: item.fecha, diagnosis: item.factura.diagnostico, total: item.factura.total };
       });
-      const byMethod = {}; for (const item of payments) byMethod[item.paymentMethod] = Number(((byMethod[item.paymentMethod] || 0) + item.amount).toFixed(2));
-      return { from, to, payments: structuredClone(payments), pendingInvoices, total: Number(payments.reduce((sum, item) => sum + item.amount, 0).toFixed(2)), byMethod };
+      const byMethod = {}; for (const item of payments) byMethod[item.paymentMethod] = Number(((byMethod[item.paymentMethod] || 0) + (item.patientPaid ?? item.amount)).toFixed(2));
+      return { from, to, payments: structuredClone(payments), pendingInvoices, total: Number(payments.reduce((sum, item) => sum + (item.patientPaid ?? item.amount), 0).toFixed(2)), insuranceTotal: Number(payments.reduce((sum, item) => sum + (item.insuranceCovered || 0), 0).toFixed(2)), byMethod };
     });
   }
   chargeInvoice(consultationId, payment) {
@@ -192,7 +192,8 @@ class LocalOdontoDB extends OdontoDB {
       const consultation = data.consultas.find(item => item.id === Number(consultationId));
       if (consultation?.factura?.estado !== 'cerrada') throw new Error('La factura debe estar cerrada antes de cobrarla.');
       if (data.cashPayments.some(item => item.consultationId === consultation.id)) throw new Error('Esta factura ya fue cobrada.');
-      const saved = { id: data.nextPayment++, consultationId: consultation.id, patientId: consultation.pacienteId, amount: consultation.factura.total, paymentMethod: payment.paymentMethod || 'efectivo', reference: String(payment.reference || ''), receivedByName: 'Este navegador', paidAt: new Date().toISOString() };
+      const coveragePercent = Math.min(100, Math.max(0, Number(payment.coveragePercent || 0))); const insuranceCovered = Number((consultation.factura.total * coveragePercent / 100).toFixed(2));
+      const saved = { id: data.nextPayment++, consultationId: consultation.id, patientId: consultation.pacienteId, amount: consultation.factura.total, coveragePercent, insuranceCovered, patientPaid: Number((consultation.factura.total - insuranceCovered).toFixed(2)), paymentMethod: payment.paymentMethod || 'efectivo', reference: String(payment.reference || ''), receivedByName: 'Este navegador', paidAt: new Date().toISOString() };
       data.cashPayments.push(saved); return structuredClone(saved);
     });
   }

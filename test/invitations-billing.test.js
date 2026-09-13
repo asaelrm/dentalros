@@ -172,21 +172,24 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del cat�
   assert.equal((await f.request('/api/backup/import', 'POST', invalid, f.admin)).status, 400);
   assert.equal((await f.request('/api/catalogo', 'GET', undefined, sessions.doctor)).data.length, 1);
   assert.equal((await f.request('/api/cash', 'GET', undefined, sessions.auxiliar)).status, 403);
-  const charge = await f.request(`/api/consultas/${visit.data.id}/charge`, 'POST', { paymentMethod: 'tarjeta', reference: 'APROB-1' }, sessions.secretaria);
+  const charge = await f.request(`/api/consultas/${visit.data.id}/charge`, 'POST', { paymentMethod: 'tarjeta', reference: 'APROB-1', coveragePercent: 25 }, sessions.secretaria);
   assert.equal(charge.status, 201);
   assert.equal(charge.data.amount, 60);
+  assert.equal(charge.data.insuranceCovered, 15);
+  assert.equal(charge.data.patientPaid, 45);
   assert.equal((await f.request(`/api/consultas/${visit.data.id}/charge`, 'POST', { paymentMethod: 'efectivo' }, sessions.secretaria)).status, 409);
   assert.equal((await f.request(`${invoicePath}/reabrir`, 'POST', {}, f.admin)).status, 409);
   const today = new Date().toISOString().slice(0, 10);
   const cash = await f.request(`/api/cash?from=${today}&to=${today}`, 'GET', undefined, f.admin);
-  assert.equal(cash.data.total, 60);
+  assert.equal(cash.data.total, 45);
+  assert.equal(cash.data.insuranceTotal, 15);
   assert.equal(cash.data.payments[0].reference, 'APROB-1');
   assert.equal(cash.data.pendingInvoices.length, 0);
   const financialBackup = (await f.request('/api/backup', 'GET', undefined, f.admin)).data;
   assert.equal(financialBackup.insurers.some(item => item.nombre === 'ARS Comunitaria'), true);
   assert.equal(financialBackup.cashPayments[0].amountCentavos, 6000);
   assert.equal((await f.request('/api/backup/import', 'POST', financialBackup, f.admin)).status, 200);
-  assert.equal((await f.request(`/api/cash?from=${today}&to=${today}`, 'GET', undefined, f.admin)).data.total, 60);
+  assert.equal((await f.request(`/api/cash?from=${today}&to=${today}`, 'GET', undefined, f.admin)).data.total, 45);
 });
 
 test('Configuración SMTP exige origen válido y TLS', () => {

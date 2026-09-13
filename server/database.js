@@ -160,6 +160,11 @@ function openDatabase(filename) {
     if (!catalogColumns.has('descripcion')) db.exec("ALTER TABLE catalogo ADD COLUMN descripcion TEXT NOT NULL DEFAULT ''");
     if (!catalogColumns.has('especialidad')) db.exec("ALTER TABLE catalogo ADD COLUMN especialidad TEXT NOT NULL DEFAULT ''");
     if (!catalogColumns.has('service_type')) db.exec("ALTER TABLE catalogo ADD COLUMN service_type TEXT NOT NULL DEFAULT 'procedimiento'");
+    const cashColumns = new Set(db.prepare('PRAGMA table_info(cash_payments)').all().map(column => column.name));
+    if (!cashColumns.has('coverage_percent')) db.exec('ALTER TABLE cash_payments ADD COLUMN coverage_percent REAL NOT NULL DEFAULT 0');
+    if (!cashColumns.has('insurance_covered_centavos')) db.exec('ALTER TABLE cash_payments ADD COLUMN insurance_covered_centavos INTEGER NOT NULL DEFAULT 0');
+    if (!cashColumns.has('patient_paid_centavos')) db.exec('ALTER TABLE cash_payments ADD COLUMN patient_paid_centavos INTEGER NOT NULL DEFAULT 0');
+    db.exec('UPDATE cash_payments SET patient_paid_centavos = amount_centavos WHERE patient_paid_centavos = 0 AND insurance_covered_centavos = 0');
     const insurers = [
       ['SeNaSa','SENASA'],['Primera ARS','PRIMERA'],['MAPFRE Salud ARS','MAPFRE'],['ARS Universal','UNIVERSAL'],
       ['ARS Futuro','FUTURO'],['ARS SEMMA','SEMMA'],['ARS Renacer','RENACER'],['ARS Monumental','MONUMENTAL'],
