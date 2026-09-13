@@ -47,7 +47,7 @@ class CatalogManager {
       const item = this.items.find(item => item.id === Number(button.dataset.id));
       const form = document.getElementById('form-catalogo');
       form.elements.namedItem('id').value = item.id; form.tipo.value = item.tipo; form.tipo.disabled = true;
-      form.nombre.value = item.nombre; form.precio.value = (item.precioCentavos / 100).toFixed(2); form.activo.checked = item.activo;
+      form.nombre.value = item.nombre; form.codigo.value = item.codigo || ''; form.serviceType.value = item.serviceType || 'procedimiento'; form.especialidad.value = item.especialidad || ''; form.descripcion.value = item.descripcion || ''; form.precio.value = (item.precioCentavos / 100).toFixed(2); form.activo.checked = item.activo;
       this.priceState(); form.nombre.focus();
     }));
   }
@@ -65,7 +65,7 @@ class CatalogManager {
     if (!insuranceId) return;
     const items = await window.odontoDB.getCatalogo(insuranceId);
     const search = document.getElementById('tariff-search').value.trim().toLowerCase();
-    document.getElementById('tariff-price-list').innerHTML = items.filter(i => i.tipo === 'procedimiento' && i.nombre.toLowerCase().includes(search)).map(i => `<label class="grid grid-cols-[1fr_140px] gap-3 items-center p-2 bg-white rounded-xl border"><span class="font-bold">${window.escapeHTML(i.nombre)}</span><input data-catalog-id="${i.id}" type="number" min="0" step="0.01" class="px-3 py-2 border rounded-lg" placeholder="Sin tarifa" value="${i.precioCentavos == null ? '' : (i.precioCentavos / 100).toFixed(2)}"></label>`).join('');
+    document.getElementById('tariff-price-list').innerHTML = items.filter(i => i.tipo === 'procedimiento' && [i.nombre, i.codigo, i.especialidad, i.serviceType].join(' ').toLowerCase().includes(search)).map(i => `<label class="grid grid-cols-[1fr_140px] gap-3 items-center p-2 bg-white rounded-xl border"><span><strong>${window.escapeHTML(i.codigo || 'SIN-CÓDIGO')} · ${window.escapeHTML(i.nombre)}</strong><small class="block text-slate-500">${i.serviceType === 'consulta' ? 'Consulta' : 'Procedimiento'}${i.especialidad ? ' · ' + window.escapeHTML(i.especialidad) : ''}</small></span><input data-catalog-id="${i.id}" type="number" min="0" step="0.01" class="px-3 py-2 border rounded-lg" placeholder="Sin tarifa" value="${i.precioCentavos == null ? '' : (i.precioCentavos / 100).toFixed(2)}"></label>`).join('');
   }
   async saveTariff() {
     const insuranceId = Number(document.getElementById('tariff-insurance').value);
@@ -79,7 +79,7 @@ class CatalogManager {
     const button = form.querySelector('button[type="submit"]');
     button.disabled = true;
     try {
-      await window.odontoDB.saveCatalogo({ ...(form.elements.namedItem('id').value ? { id: Number(form.elements.namedItem('id').value) } : {}), tipo: form.tipo.value, nombre: form.nombre.value.trim(), precio: Number(form.precio.value), activo: form.activo.checked });
+      await window.odontoDB.saveCatalogo({ ...(form.elements.namedItem('id').value ? { id: Number(form.elements.namedItem('id').value) } : {}), tipo: form.tipo.value, nombre: form.nombre.value.trim(), codigo: form.codigo.value.trim(), serviceType: form.serviceType.value, especialidad: form.especialidad.value.trim(), descripcion: form.descripcion.value.trim(), precio: Number(form.precio.value), activo: form.activo.checked });
       await this.load(); this.renderCatalog(); this.resetForm();
       document.getElementById('catalog-message').textContent = 'Catálogo actualizado.';
     } catch (error) { document.getElementById('catalog-message').textContent = error.message; }

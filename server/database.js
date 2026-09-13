@@ -155,6 +155,11 @@ function openDatabase(filename) {
         PRIMARY KEY (catalog_id, insurance_id)
       ) STRICT;
     `);
+    const catalogColumns = new Set(db.prepare('PRAGMA table_info(catalogo)').all().map(column => column.name));
+    if (!catalogColumns.has('codigo')) db.exec("ALTER TABLE catalogo ADD COLUMN codigo TEXT NOT NULL DEFAULT ''");
+    if (!catalogColumns.has('descripcion')) db.exec("ALTER TABLE catalogo ADD COLUMN descripcion TEXT NOT NULL DEFAULT ''");
+    if (!catalogColumns.has('especialidad')) db.exec("ALTER TABLE catalogo ADD COLUMN especialidad TEXT NOT NULL DEFAULT ''");
+    if (!catalogColumns.has('service_type')) db.exec("ALTER TABLE catalogo ADD COLUMN service_type TEXT NOT NULL DEFAULT 'procedimiento'");
     const insurers = [
       ['SeNaSa','SENASA'],['Primera ARS','PRIMERA'],['MAPFRE Salud ARS','MAPFRE'],['ARS Universal','UNIVERSAL'],
       ['ARS Futuro','FUTURO'],['ARS SEMMA','SEMMA'],['ARS Renacer','RENACER'],['ARS Monumental','MONUMENTAL'],

@@ -8,7 +8,7 @@
   function catalogItem(value) {
     if (!value || !['diagnostico', 'procedimiento'].includes(value.tipo) || typeof value.nombre !== 'string' || !value.nombre.trim() || value.nombre.length > 200) fail('Indica el tipo y un nombre válido para el catálogo.');
     if (value.activo !== undefined && typeof value.activo !== 'boolean') fail('El estado del catálogo no es válido.');
-    return { tipo: value.tipo, nombre: value.nombre.trim(), precioCentavos: value.tipo === 'procedimiento' ? cents(value.precio ?? 0) : 0, activo: value.activo ?? true };
+    return { tipo: value.tipo, nombre: value.nombre.trim(), codigo: String(value.codigo || '').trim().slice(0, 50), descripcion: String(value.descripcion || '').trim().slice(0, 500), especialidad: String(value.especialidad || '').trim().slice(0, 100), serviceType: value.tipo === 'procedimiento' && value.serviceType === 'consulta' ? 'consulta' : 'procedimiento', precioCentavos: value.tipo === 'procedimiento' ? cents(value.precio ?? 0) : 0, activo: value.activo ?? true };
   }
   function lines(input, catalog, canPrice, previous = []) {
     if (!Array.isArray(input) || input.length > 100) fail('Selecciona como máximo 100 procedimientos.');

@@ -742,7 +742,7 @@ async function deliverInvitation(db, userId, actorId, mailer) {
 function getCatalog(db, insuranceId = null) {
   if (!insuranceId) insuranceId = db.prepare("SELECT id FROM insurers WHERE codigo = 'PRIVADO'").get()?.id || null;
   return db.prepare(`SELECT c.*, cp.price_centavos AS tariff_price FROM catalogo c
-    LEFT JOIN catalog_prices cp ON cp.catalog_id = c.id AND cp.insurance_id = ? ORDER BY c.tipo, c.nombre, c.id`).all(insuranceId).map(row => ({ id: Number(row.id), tipo: row.tipo, nombre: row.nombre, precioCentavos: row.tariff_price == null ? null : Number(row.tariff_price), activo: Boolean(row.activo) }));
+    LEFT JOIN catalog_prices cp ON cp.catalog_id = c.id AND cp.insurance_id = ? ORDER BY c.tipo, c.nombre, c.id`).all(insuranceId).map(row => ({ id: Number(row.id), tipo: row.tipo, nombre: row.nombre, codigo: row.codigo || '', descripcion: row.descripcion || '', especialidad: row.especialidad || '', serviceType: row.service_type || 'procedimiento', precioCentavos: row.tariff_price == null ? null : Number(row.tariff_price), activo: Boolean(row.activo) }));
 }
 async function handleCatalog(req, res, pathname, context, auth) {
   const { db, bodyLimit } = context;
@@ -765,8 +765,8 @@ async function handleCatalog(req, res, pathname, context, auth) {
     if (previous.tipo !== item.tipo) throw new HttpError(400, 'No se puede cambiar el tipo de un elemento existente.');
   }
   runTransaction(db, () => {
-    if (id) db.prepare('UPDATE catalogo SET nombre = ?, precio_centavos = ?, activo = ? WHERE id = ?').run(item.nombre, item.precioCentavos, Number(item.activo), id);
-    else id = Number(db.prepare('INSERT INTO catalogo (tipo, nombre, precio_centavos, activo) VALUES (?, ?, ?, ?)').run(item.tipo, item.nombre, item.precioCentavos, Number(item.activo)).lastInsertRowid);
+    if (id) db.prepare('UPDATE catalogo SET nombre = ?, codigo = ?, descripcion = ?, especialidad = ?, service_type = ?, precio_centavos = ?, activo = ? WHERE id = ?').run(item.nombre, item.codigo, item.descripcion, item.especialidad, item.serviceType, item.precioCentavos, Number(item.activo), id);
+    else id = Number(db.prepare('INSERT INTO catalogo (tipo, nombre, codigo, descripcion, especialidad, service_type, precio_centavos, activo) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(item.tipo, item.nombre, item.codigo, item.descripcion, item.especialidad, item.serviceType, item.precioCentavos, Number(item.activo)).lastInsertRowid);
     if (item.tipo === 'procedimiento') {
       const privateInsurer = db.prepare("SELECT id FROM insurers WHERE codigo = 'PRIVADO'").get();
       db.prepare(`INSERT INTO catalog_prices (catalog_id, insurance_id, price_centavos, created_at, updated_at) VALUES (?, ?, ?, ?, ?)

@@ -1030,6 +1030,10 @@
         <input type="hidden" name="id">
         <label>Tipo<select name="tipo"><option value="diagnostico">Diagnóstico</option><option value="procedimiento">Procedimiento</option></select></label>
         <label>Nombre<input name="nombre" maxlength="200" required></label>
+        <label>Código<input name="codigo" maxlength="50" placeholder="Ej: CON-001 o PROC-001"></label>
+        <label>Clase de servicio<select name="serviceType"><option value="procedimiento">Procedimiento</option><option value="consulta">Consulta</option></select></label>
+        <label>Especialidad<input name="especialidad" maxlength="100" placeholder="Ej: Odontología general"></label>
+        <label>Descripción<input name="descripcion" maxlength="500"></label>
         <label>Precio del procedimiento ($)<input name="precio" type="number" min="0" max="10000000" step="0.01" value="0" required></label>
         <label><input name="activo" type="checkbox" checked> Disponible para nuevas visitas</label>
         <div class="flex gap-2"><button type="submit" class="btn-primary px-4 py-2 rounded-xl">Guardar</button><button id="btn-new-catalogo" type="button" class="secondary-button">Nuevo</button></div>
