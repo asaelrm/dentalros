@@ -682,6 +682,7 @@ class OdontoApp {
     formFactura?.addEventListener('submit', event => this.saveFactura(event));
     document.getElementById('btn-finalize-factura')?.addEventListener('click', () => this.finalizeFactura());
     document.getElementById('btn-reopen-factura')?.addEventListener('click', () => this.reopenFactura());
+    document.getElementById('btn-download-factura')?.addEventListener('click', () => this.downloadFacturaPDF());
     document.getElementById('btn-close-factura-modal')?.addEventListener('click', () => this.closeModal('modal-factura'));
 
     // 9. Pestañas del paciente
@@ -905,6 +906,7 @@ class OdontoApp {
     document.getElementById('btn-save-factura').hidden = !canWrite;
     document.getElementById('btn-finalize-factura').hidden = !canWrite;
     document.getElementById('btn-reopen-factura').hidden = !closed || !window.authManager.hasPermission('invoice.reopen');
+    document.getElementById('btn-download-factura').hidden = !factura;
     document.getElementById('factura-title').textContent = closed ? 'Factura cerrada' : (factura ? 'Factura abierta' : 'Nueva factura');
     document.getElementById('factura-message').textContent = closed ? 'Esta factura está bloqueada. Solo el administrador puede reabrirla.' : '';
     document.querySelectorAll('#factura-procedimientos input, #factura-procedimientos select, #factura-procedimientos button').forEach(control => {
@@ -962,6 +964,26 @@ class OdontoApp {
       await this.openFacturaModal(consultaId);
       this.showToast('Factura reabierta por el administrador.');
     } catch (error) { this.showToast(error.message, 'error'); }
+  }
+
+  async downloadFacturaPDF() {
+    const consultaId = Number(document.getElementById('form-factura').consultaId.value);
+    const consulta = this.currentConsultas.find(item => item.id === consultaId);
+    if (!consulta?.factura) {
+      this.showToast('Guarda la factura antes de generar su PDF.', 'error');
+      return;
+    }
+    const button = document.getElementById('btn-download-factura');
+    button.disabled = true;
+    try {
+      await window.pdfExporter.downloadInvoicePDF(this.currentPaciente, consulta, this.config);
+      this.showToast('PDF de la factura generado correctamente.');
+    } catch (error) {
+      console.error('Error al generar la factura PDF:', error);
+      this.showToast('No se pudo generar el PDF de la factura.', 'error');
+    } finally {
+      button.disabled = false;
+    }
   }
 
   openPDFPreviewModal() {

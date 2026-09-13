@@ -9,6 +9,77 @@ class PDFExporter {
     this.previewModal = null;
   }
 
+  buildInvoiceHTML(paciente, consulta, config) {
+    const escape = window.escapeHTML || (value => String(value ?? ''));
+    const invoice = consulta?.factura;
+    if (!invoice) throw new Error('La consulta no tiene una factura guardada.');
+    const money = centavos => (Number(centavos || 0) / 100).toFixed(2);
+    const invoiceNumber = `FAC-${String(consulta.id).padStart(6, '0')}`;
+    const generatedDate = new Date().toLocaleDateString('es-ES');
+    const rows = (invoice.procedimientos || []).map((item, index) => `
+      <tr style="border-bottom:1px solid #e2e8f0;">
+        <td style="padding:10px 8px;text-align:center;">${index + 1}</td>
+        <td style="padding:10px 8px;"><strong>${escape(item.nombre)}</strong>${item.diagnostico ? `<br><small style="color:#64748b;">${escape(item.diagnostico)}</small>` : ''}</td>
+        <td style="padding:10px 8px;text-align:center;">${Number(item.cantidad)}</td>
+        <td style="padding:10px 8px;text-align:right;">$${money(item.precioCentavos)}</td>
+        <td style="padding:10px 8px;text-align:right;font-weight:700;">$${money(item.subtotalCentavos)}</td>
+      </tr>`).join('');
+
+    return `<div style="font-family:'Segoe UI',Arial,sans-serif;color:#1e293b;background:#fff;max-width:800px;margin:0 auto;padding:30px 36px;line-height:1.4;">
+      <header style="display:flex;justify-content:space-between;align-items:center;border-bottom:3px solid #e11d48;padding-bottom:18px;gap:24px;">
+        <div style="display:flex;align-items:center;gap:14px;">
+          <img src="${window.LOGO_DATA_URL || 'img/logo.jpg'}" alt="DentalRos" style="width:72px;height:72px;object-fit:contain;">
+          <div>
+            <h1 style="margin:0;color:#881337;font-size:22px;">${escape(config?.nombreClinica || 'DentalRos')}</h1>
+            <p style="margin:3px 0;font-size:12px;font-weight:700;">${escape(config?.nombreDoctor || 'Profesional tratante')}</p>
+            <p style="margin:0;color:#64748b;font-size:10px;">${escape(config?.direccion || '')}</p>
+            <p style="margin:0;color:#64748b;font-size:10px;">${escape(config?.telefono || '')}${config?.email ? ` · ${escape(config.email)}` : ''}</p>
+          </div>
+        </div>
+        <div style="text-align:right;">
+          <h2 style="margin:0;color:#e11d48;font-size:25px;letter-spacing:1px;">FACTURA</h2>
+          <strong style="font-size:14px;">${invoiceNumber}</strong>
+          <p style="margin:4px 0 0;font-size:11px;color:#64748b;">Estado: ${invoice.estado === 'cerrada' ? 'CERRADA' : 'BORRADOR'}</p>
+        </div>
+      </header>
+      <section style="display:grid;grid-template-columns:1fr 1fr;gap:18px;margin:22px 0;padding:14px;background:#fff1f2;border-radius:8px;font-size:11px;">
+        <div><strong style="color:#9f1239;">PACIENTE</strong><br><span style="font-size:14px;font-weight:700;">${escape(paciente.nombre)} ${escape(paciente.apellido)}</span><br>Cédula/DNI: ${escape(paciente.cedula || 'No especificada')}<br>Teléfono: ${escape(paciente.telefono || '-')}</div>
+        <div><strong style="color:#9f1239;">DATOS DE LA FACTURA</strong><br>Fecha de consulta: ${escape(consulta.fecha || generatedDate)}<br>Fecha de emisión: ${generatedDate}${invoice.cerradaEn ? `<br>Fecha de cierre: ${new Date(invoice.cerradaEn).toLocaleDateString('es-ES')}` : ''}</div>
+      </section>
+      <section style="margin-bottom:20px;font-size:12px;"><strong style="color:#9f1239;">DIAGNÓSTICO</strong><p style="white-space:pre-wrap;margin:6px 0;">${escape(invoice.diagnostico)}</p></section>
+      <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;font-size:11px;">
+        <thead><tr style="background:#881337;color:#fff;"><th style="padding:9px;width:7%;">#</th><th style="padding:9px;text-align:left;">Procedimiento</th><th style="padding:9px;width:12%;">Cantidad</th><th style="padding:9px;text-align:right;width:17%;">Precio</th><th style="padding:9px;text-align:right;width:17%;">Subtotal</th></tr></thead>
+        <tbody>${rows || '<tr><td colspan="5" style="padding:18px;text-align:center;color:#64748b;">Sin procedimientos registrados</td></tr>'}</tbody>
+      </table>
+      <div style="display:flex;justify-content:flex-end;margin-top:18px;"><div style="min-width:260px;background:#fff1f2;border:1px solid #fecdd3;padding:14px 18px;border-radius:8px;display:flex;justify-content:space-between;align-items:center;"><strong style="font-size:14px;color:#881337;">TOTAL</strong><strong style="font-size:24px;color:#047857;">$${Number(invoice.total || 0).toFixed(2)}</strong></div></div>
+      <footer style="margin-top:54px;text-align:center;border-top:1px solid #cbd5e1;padding-top:10px;font-size:10px;color:#64748b;">${escape(config?.piePagina || 'Gracias por confiar su salud dental en nosotros.')}</footer>
+    </div>`;
+  }
+
+  async downloadInvoicePDF(paciente, consulta, config) {
+    const invoiceHtml = this.buildInvoiceHTML(paciente, consulta, config || {});
+    const container = document.createElement('div');
+    container.innerHTML = invoiceHtml;
+    container.style.cssText = 'position:absolute;left:-9999px;top:0;width:800px;';
+    document.body.appendChild(container);
+    const safeId = String(paciente.cedula || paciente.id).replace(/[^a-zA-Z0-9_-]/g, '_');
+    const filename = `Factura_FAC-${String(consulta.id).padStart(6, '0')}_${safeId}.pdf`;
+    if (!window.html2pdf) {
+      container.remove();
+      throw new Error('El generador de PDF no está disponible.');
+    }
+    try {
+      await window.html2pdf().set({
+        margin: [8, 8, 8, 8], filename,
+        image: { type: 'jpeg', quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true },
+        jsPDF: { unit: 'mm', format: 'letter', orientation: 'portrait' }
+      }).from(container.firstElementChild).save();
+    } finally {
+      container.remove();
+    }
+  }
+
   // Genera el documento HTML completo del informe médico
   buildReportHTML(paciente, historia, consultas, odontogramaData, config) {
     const escape = window.escapeHTML || (value => String(value ?? ''));
