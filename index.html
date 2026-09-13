@@ -202,6 +202,10 @@
           class="px-2.5 sm:px-3.5 py-1.5 text-xs font-bold text-rose-900 btn-soft-rose rounded-xl flex items-center gap-1.5 transition shadow-sm">
           <span>⚙️</span> <span class="hidden sm:inline">Consultorio</span>
         </button>
+        <button id="btn-cash" title="Cobros y cuadre de caja"
+          class="px-2.5 sm:px-3.5 py-1.5 text-xs font-bold text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-1.5 transition shadow-sm">
+          <span>💵</span> <span class="hidden sm:inline">Caja</span>
+        </button>
 
         <div class="user-menu-wrap">
           <button id="btn-user-menu" type="button" class="user-menu-trigger" aria-expanded="false" title="Opciones de usuario">
@@ -392,6 +396,7 @@
 
         <!-- PESTAÑA 1: HISTORIA CLÍNICA & ANAMNESIS -->
         <div id="tab-pane-historia" class="tab-content glass-panel p-4 sm:p-6 rounded-3xl">
+          <div id="history-insurance-summary" class="mb-5 p-4 rounded-2xl bg-rose-50/70 border border-rose-200"></div>
           <form id="form-historia-clinica" class="space-y-5">
 
             <!-- Motivo de Consulta -->
@@ -630,6 +635,27 @@
               class="w-full px-3.5 py-2.5 bg-white/85 border border-rose-200/80 rounded-xl focus:outline-none focus:ring-2 focus:ring-rose-400 focus:bg-white transition" />
           </div>
         </div>
+
+        <section class="billing-panel">
+          <div>
+            <p class="section-eyebrow">Cobertura médica</p>
+            <h4 class="font-black text-rose-950">Seguro médico / ARS</h4>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-3">
+            <label class="font-bold text-rose-950">Seguro / ARS
+              <select name="insuranceId" class="w-full mt-1 px-3.5 py-2.5 bg-white border border-rose-200 rounded-xl"><option value="">Seleccione...</option></select>
+            </label>
+            <label class="font-bold text-rose-950">Número de afiliado / carnet
+              <input name="affiliateNumber" maxlength="100" class="w-full mt-1 px-3.5 py-2.5 bg-white border border-rose-200 rounded-xl" />
+            </label>
+            <label class="font-bold text-rose-950">Número de póliza (opcional)
+              <input name="policyNumber" maxlength="100" class="w-full mt-1 px-3.5 py-2.5 bg-white border border-rose-200 rounded-xl" />
+            </label>
+          </div>
+          <label id="other-insurer-field" class="block font-bold text-rose-950 mt-3" hidden>Nombre del seguro
+            <input name="otherInsuranceName" maxlength="150" class="w-full mt-1 px-3.5 py-2.5 bg-white border border-rose-200 rounded-xl" placeholder="Escribe el nombre de la aseguradora" />
+          </label>
+        </section>
 
         <div class="flex justify-end gap-2.5 pt-4 border-t border-rose-100">
           <button type="button" onclick="window.app.closeModal('modal-paciente')"
@@ -989,6 +1015,29 @@
       </form>
       <p id="catalog-message" role="status"></p>
       <div id="catalog-list" class="mt-4"></div>
+    </section>
+  </div>
+
+  <div id="modal-cash" class="fixed inset-0 z-[70] hidden items-center justify-center modal-backdrop p-3" hidden>
+    <section class="glass-modal rounded-3xl max-w-6xl w-full p-5 sm:p-7 max-h-[94vh] overflow-y-auto">
+      <div class="flex flex-wrap justify-between items-center gap-3 border-b border-rose-100 pb-3 mb-4">
+        <div><p class="section-eyebrow">Control financiero</p><h3 class="font-black text-rose-950">Caja y cobros</h3></div>
+        <button id="btn-close-cash" type="button" class="secondary-button">Cerrar</button>
+      </div>
+      <div class="flex flex-wrap items-end gap-3 p-4 bg-white/70 rounded-2xl border border-rose-100">
+        <label class="text-xs font-bold">Desde<input id="cash-from" type="date" class="block mt-1 px-3 py-2 border border-rose-200 rounded-xl"></label>
+        <label class="text-xs font-bold">Hasta<input id="cash-to" type="date" class="block mt-1 px-3 py-2 border border-rose-200 rounded-xl"></label>
+        <button id="btn-cash-today" type="button" class="secondary-button">Hoy</button>
+        <button id="btn-cash-month" type="button" class="secondary-button">Este mes</button>
+        <button id="btn-cash-filter" type="button" class="btn-primary px-4 py-2 rounded-xl font-black">Aplicar filtro</button>
+        <button id="btn-cash-print" type="button" class="secondary-button">🖨️ Imprimir reporte</button>
+      </div>
+      <div id="cash-summary" class="grid grid-cols-1 sm:grid-cols-3 gap-3 my-4"></div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <section><h4 class="font-black text-rose-950 mb-2">Facturas pendientes de cobro</h4><div id="cash-pending" class="space-y-3"></div></section>
+        <section><h4 class="font-black text-rose-950 mb-2">Movimientos del período</h4><div id="cash-payments" class="space-y-3"></div></section>
+      </div>
+      <p id="cash-message" role="status" class="mt-3 text-sm font-bold"></p>
     </section>
   </div>
 

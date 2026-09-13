@@ -10,6 +10,7 @@ class OdontoApp {
     this.currentHistoria = null;
     this.currentConsultas = [];
     this.currentOdontograma = null;
+    this.insurers = [];
     this.config = null;
     this.odontogramaComponent = null;
     this.activeTab = 'historia'; // 'historia' | 'odontograma' | 'consultas'
@@ -36,6 +37,7 @@ class OdontoApp {
     try {
       // 2. Inicializar el cliente de datos protegido
       await window.odontoDB.init();
+      await this.loadInsurers();
 
       // 3. Cargar configuración
       this.config = await window.odontoDB.getConfig();
@@ -78,6 +80,8 @@ class OdontoApp {
         const element = document.getElementById(id);
         if (element) element.hidden = !isAdmin;
       });
+    const cashButton = document.getElementById('btn-cash');
+    if (cashButton) cashButton.hidden = !window.authManager.hasPermission('cash.read');
 
     for (const id of ['btn-nuevo-paciente', 'btn-editar-paciente', 'btn-registrar-primer-paciente']) {
       const button = document.getElementById(id);
@@ -297,6 +301,9 @@ class OdontoApp {
       <span>&bull;</span>
       <span><strong>Teléfono:</strong> ${escape(p.telefono || '-')}</span>
       ${p.email ? `<span>&bull;</span><span><strong>Email:</strong> ${escape(p.email)}</span>` : ''}
+      <span>&bull;</span>
+      <span><strong>Seguro/ARS:</strong> ${escape(p.insuranceName || 'Sin especificar')}</span>
+      ${p.affiliateNumber ? `<span>&bull;</span><span><strong>Afiliado/carnet:</strong> ${escape(p.affiliateNumber)}</span>` : ''}
     `;
 
     // Alerta de Alergia
@@ -317,6 +324,10 @@ class OdontoApp {
     const h = this.currentHistoria;
     const f = document.getElementById('form-historia-clinica');
     if (!f) return;
+
+    const p = this.currentPaciente;
+    const insuranceSummary = document.getElementById('history-insurance-summary');
+    if (insuranceSummary) insuranceSummary.innerHTML = `<p class="section-eyebrow">Cobertura del paciente</p><div class="flex flex-wrap gap-x-6 gap-y-1 mt-1 text-sm"><span><strong>Seguro/ARS:</strong> ${window.escapeHTML(p.insuranceName || 'Sin especificar')}</span><span><strong>Afiliado/carnet:</strong> ${window.escapeHTML(p.affiliateNumber || 'No aplica')}</span>${p.policyNumber ? `<span><strong>Póliza:</strong> ${window.escapeHTML(p.policyNumber)}</span>` : ''}</div>`;
 
     f.motivoPrincipal.value = h.motivoPrincipal || '';
     f.alergias.value = h.alergias || '';
@@ -531,6 +542,7 @@ class OdontoApp {
     // 5. Guardar Formulario Paciente (Nuevo o Editar)
     const formPaciente = document.getElementById('form-paciente');
     if (formPaciente) {
+      formPaciente.insuranceId.addEventListener('change', () => this.updateInsuranceFields());
       formPaciente.addEventListener('submit', async (e) => {
         e.preventDefault();
         const submitBtn = formPaciente.querySelector('button[type="submit"]');
@@ -552,6 +564,12 @@ class OdontoApp {
             return;
           }
 
+          let insuranceId = f.insuranceId.value;
+          if (insuranceId === 'other') {
+            const insurer = await window.odontoDB.createInsurer(f.otherInsuranceName.value.trim());
+            insuranceId = insurer.id;
+            await this.loadInsurers();
+          }
           const pacienteData = {
             nombre,
             apellido,
@@ -564,7 +582,10 @@ class OdontoApp {
             direccion: f.direccion.value.trim(),
             ocupacion: f.ocupacion.value.trim(),
             contactoEmergencia: f.contactoEmergencia.value.trim(),
-            telefonoEmergencia: f.telefonoEmergencia.value.trim()
+            telefonoEmergencia: f.telefonoEmergencia.value.trim(),
+            insuranceId: insuranceId ? Number(insuranceId) : null,
+            affiliateNumber: f.affiliateNumber.value.trim(),
+            policyNumber: f.policyNumber.value.trim()
           };
 
           // Solo asignar id si es una edición
@@ -746,6 +767,12 @@ class OdontoApp {
         this.openModal('modal-config');
       });
     }
+    document.getElementById('btn-cash')?.addEventListener('click', () => this.openCash());
+    document.getElementById('btn-close-cash')?.addEventListener('click', () => this.closeModal('modal-cash'));
+    document.getElementById('btn-cash-filter')?.addEventListener('click', () => this.loadCash());
+    document.getElementById('btn-cash-today')?.addEventListener('click', () => this.setCashPeriod('today'));
+    document.getElementById('btn-cash-month')?.addEventListener('click', () => this.setCashPeriod('month'));
+    document.getElementById('btn-cash-print')?.addEventListener('click', () => this.printCashReport());
 
     const formConfig = document.getElementById('form-config');
     if (formConfig) {
@@ -879,12 +906,42 @@ class OdontoApp {
       f.ocupacion.value = paciente.ocupacion || '';
       f.contactoEmergencia.value = paciente.contactoEmergencia || '';
       f.telefonoEmergencia.value = paciente.telefonoEmergencia || '';
+      f.insuranceId.value = paciente.insuranceId || '';
+      f.affiliateNumber.value = paciente.affiliateNumber || '';
+      f.policyNumber.value = paciente.policyNumber || '';
     } else {
       title.textContent = 'Registrar Nuevo Paciente';
       f.pacienteId.value = '';
     }
 
+    this.updateInsuranceFields();
+
     this.openModal('modal-paciente');
+  }
+
+  async loadInsurers() {
+    this.insurers = await window.odontoDB.getInsurers();
+    const select = document.querySelector('#form-paciente select[name="insuranceId"]');
+    if (!select) return;
+    const current = select.value;
+    const regular = this.insurers.filter(item => item.codigo !== 'PRIVADO');
+    const privateOption = this.insurers.find(item => item.codigo === 'PRIVADO');
+    select.innerHTML = '<option value="">Seleccione...</option>' + regular.map(item => `<option value="${Number(item.id)}">${window.escapeHTML(item.nombre)}</option>`).join('') + '<option value="other">Otro</option>' + (privateOption ? `<option value="${Number(privateOption.id)}">${window.escapeHTML(privateOption.nombre)}</option>` : '');
+    if ([...select.options].some(option => option.value === current)) select.value = current;
+  }
+
+  updateInsuranceFields() {
+    const form = document.getElementById('form-paciente');
+    if (!form) return;
+    const selected = form.insuranceId.value;
+    const insurer = this.insurers.find(item => item.id === Number(selected));
+    const isPrivate = insurer?.codigo === 'PRIVADO';
+    const isOther = selected === 'other';
+    document.getElementById('other-insurer-field').hidden = !isOther;
+    form.otherInsuranceName.required = isOther;
+    form.affiliateNumber.required = Boolean(selected) && !isPrivate;
+    form.affiliateNumber.disabled = isPrivate;
+    if (isPrivate) form.affiliateNumber.value = '';
   }
 
   openConsultaModal() {
@@ -1019,6 +1076,65 @@ class OdontoApp {
     } catch (error) {
       this.showToast(error.message || 'No se pudo imprimir la factura.', 'error');
     }
+  }
+
+  async openCash() {
+    this.setCashPeriod('today', false);
+    this.openModal('modal-cash');
+    await this.loadCash();
+  }
+
+  setCashPeriod(period, reload = true) {
+    const today = new Date();
+    const localDate = date => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+    document.getElementById('cash-to').value = localDate(today);
+    document.getElementById('cash-from').value = period === 'month' ? `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-01` : localDate(today);
+    if (reload) this.loadCash();
+  }
+
+  async loadCash() {
+    const from = document.getElementById('cash-from').value;
+    const to = document.getElementById('cash-to').value;
+    const message = document.getElementById('cash-message');
+    message.textContent = 'Cargando caja…';
+    try {
+      this.cashReport = await window.odontoDB.getCashReport(from, to);
+      this.renderCash(); message.textContent = '';
+    } catch (error) { message.textContent = error.message; }
+  }
+
+  renderCash() {
+    const report = this.cashReport;
+    const money = value => `$${Number(value || 0).toFixed(2)}`;
+    const escape = window.escapeHTML;
+    const methodLabels = { efectivo: 'Efectivo', tarjeta: 'Tarjeta', transferencia: 'Transferencia', seguro: 'Seguro/ARS', otro: 'Otro' };
+    document.getElementById('cash-summary').innerHTML = `
+      <div class="glass-card p-4 rounded-2xl"><small>Total cobrado</small><strong class="block text-2xl text-emerald-700">${money(report.total)}</strong></div>
+      <div class="glass-card p-4 rounded-2xl"><small>Transacciones</small><strong class="block text-2xl text-rose-950">${report.payments.length}</strong></div>
+      <div class="glass-card p-4 rounded-2xl"><small>Por método</small><div class="text-xs mt-1">${Object.entries(report.byMethod).map(([key, value]) => `${methodLabels[key] || key}: <b>${money(value)}</b>`).join(' · ') || 'Sin movimientos'}</div></div>`;
+    const pending = document.getElementById('cash-pending');
+    pending.innerHTML = report.pendingInvoices.length ? report.pendingInvoices.map(item => `<article class="glass-card p-4 rounded-2xl border border-rose-100" data-consultation-id="${item.consultationId}">
+      <div class="flex justify-between gap-3"><div><strong>${escape(item.patientName)}</strong><small class="block text-slate-500">${escape(item.date)} · ${escape(item.diagnosis)}</small></div><b class="text-emerald-700">${money(item.total)}</b></div>
+      <div class="flex flex-wrap gap-2 mt-3"><select class="cash-method px-3 py-2 border rounded-xl"><option value="efectivo">Efectivo</option><option value="tarjeta">Tarjeta</option><option value="transferencia">Transferencia</option><option value="seguro">Seguro/ARS</option><option value="otro">Otro</option></select><input class="cash-reference flex-1 min-w-32 px-3 py-2 border rounded-xl" maxlength="150" placeholder="Referencia (opcional)"><button class="cash-charge btn-primary px-4 py-2 rounded-xl font-black">Cobrar</button></div>
+    </article>`).join('') : '<p class="text-sm text-slate-500 p-4">No hay facturas cerradas pendientes.</p>';
+    pending.querySelectorAll('.cash-charge').forEach(button => button.addEventListener('click', () => this.chargeCash(button.closest('[data-consultation-id]'))));
+    document.getElementById('cash-payments').innerHTML = report.payments.length ? report.payments.map(item => `<article class="glass-card p-4 rounded-2xl flex justify-between gap-3"><div><strong>${escape(item.patientName)}</strong><small class="block text-slate-500">${new Date(item.paidAt).toLocaleString('es-ES')} · ${methodLabels[item.paymentMethod] || escape(item.paymentMethod)}</small><small class="block">Cobró: ${escape(item.receivedByName)}${item.reference ? ` · Ref: ${escape(item.reference)}` : ''}</small></div><b class="text-emerald-700">${money(item.amount)}</b></article>`).join('') : '<p class="text-sm text-slate-500 p-4">No hay cobros en este período.</p>';
+  }
+
+  async chargeCash(card) {
+    const button = card.querySelector('.cash-charge'); button.disabled = true;
+    try {
+      await window.odontoDB.chargeInvoice(Number(card.dataset.consultationId), { paymentMethod: card.querySelector('.cash-method').value, reference: card.querySelector('.cash-reference').value.trim() });
+      this.showToast('Cobro registrado correctamente.'); await this.loadCash();
+    } catch (error) { this.showToast(error.message, 'error'); button.disabled = false; }
+  }
+
+  printCashReport() {
+    if (!this.cashReport) return;
+    const content = `<h1>Cuadre de caja</h1><p>Desde ${this.cashReport.from} hasta ${this.cashReport.to}</p>${document.getElementById('cash-summary').innerHTML}<h2>Movimientos</h2>${document.getElementById('cash-payments').innerHTML}`;
+    const printWindow = window.open('', '_blank', 'width=900,height=800');
+    if (!printWindow) return this.showToast('Permite ventanas emergentes para imprimir.', 'error');
+    printWindow.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Cuadre de caja</title><style>body{font-family:Segoe UI,Arial;padding:32px;color:#1e293b}h1{color:#881337}.glass-card{border:1px solid #ddd;padding:12px;margin:8px 0;border-radius:10px}.text-emerald-700{color:#047857}.block{display:block}small{color:#64748b}</style></head><body>${content}<script>onload=()=>setTimeout(()=>print(),250)<\/script></body></html>`); printWindow.document.close();
   }
 
   openPDFPreviewModal() {

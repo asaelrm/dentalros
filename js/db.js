@@ -64,6 +64,11 @@ class OdontoDB {
     return this.api.request(item.id ? `/api/catalogo/${Number(item.id)}` : '/api/catalogo', { method: item.id ? 'PUT' : 'POST', body: item });
   }
 
+  async getInsurers() { return this.api.request('/api/insurers'); }
+  async createInsurer(nombre) { return this.api.request('/api/insurers', { method: 'POST', body: { nombre } }); }
+  async getCashReport(from, to) { return this.api.request(`/api/cash?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`); }
+  async chargeInvoice(consultationId, payment) { return this.api.request(`/api/consultas/${Number(consultationId)}/charge`, { method: 'POST', body: payment }); }
+
   async getPacientes() {
     return this.api.request('/api/pacientes');
   }

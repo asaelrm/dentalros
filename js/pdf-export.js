@@ -55,6 +55,8 @@ class PDFExporter {
               <span style="color:#9f1239;font-weight:700;">Cédula/DNI</span><span style="color:#334155;">${escape(paciente.cedula || 'No especificada')}</span>
               <span style="color:#9f1239;font-weight:700;">Teléfono</span><span style="color:#334155;">${escape(paciente.telefono || '-')}</span>
               <span style="color:#9f1239;font-weight:700;">Correo</span><span style="color:#334155;word-break:break-word;">${escape(paciente.email || '-')}</span>
+              <span style="color:#9f1239;font-weight:700;">Seguro/ARS</span><span style="color:#334155;">${escape(paciente.insuranceName || 'Sin especificar')}</span>
+              <span style="color:#9f1239;font-weight:700;">Afiliado</span><span style="color:#334155;">${escape(paciente.affiliateNumber || '-')}</span>
             </div>
           </div>
         </div>
@@ -271,6 +273,12 @@ class PDFExporter {
               <td style="width: 35%; padding: 4px 0; color: #0f172a; font-weight: bold;">${paciente.nombre} ${paciente.apellido}</td>
               <td style="width: 15%; padding: 4px 0; color: #64748b; font-weight: 600;">Identificación / DNI:</td>
               <td style="width: 35%; padding: 4px 0; color: #0f172a; font-weight: bold;">${paciente.cedula || 'No especificado'}</td>
+            </tr>
+            <tr>
+              <td style="padding: 4px 0; color: #64748b; font-weight: 600;">Seguro / ARS:</td>
+              <td style="padding: 4px 0; color: #0f172a; font-weight: 600;">${paciente.insuranceName || 'Sin especificar'}</td>
+              <td style="padding: 4px 0; color: #64748b; font-weight: 600;">Afiliado / Póliza:</td>
+              <td style="padding: 4px 0; color: #0f172a;">${paciente.affiliateNumber || '-'}${paciente.policyNumber ? ' / ' + paciente.policyNumber : ''}</td>
             </tr>
             <tr>
               <td style="padding: 4px 0; color: #64748b; font-weight: 600;">Edad / Nacimiento:</td>

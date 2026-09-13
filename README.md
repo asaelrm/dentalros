@@ -76,6 +76,18 @@ El administrador crea procedimientos y define sus precios desde el catálogo. Ad
 
 El precio y el nombre usados quedan guardados como una copia histórica dentro de la factura. Cambiar el catálogo afecta las facturas nuevas, pero no modifica cobros anteriores. El servidor recalcula los importes, bloquea facturas cerradas y registra cierres y reaperturas en auditoría. Los respaldos JSON incluyen el catálogo y el desglose de cada factura.
 
+## Seguros médicos y ARS
+
+Cada paciente puede relacionarse con una aseguradora del catálogo mediante `insurance_id`, número de afiliado/carnet y número de póliza opcional. Las ARS iniciales se crean automáticamente en SQLite sin repetir sus nombres dentro de cada paciente. La opción **Otro** registra una aseguradora nueva y reutiliza el registro existente si el nombre ya estaba creado. **Sin seguro / Privado** no exige número de afiliado.
+
+El seguro aparece en el encabezado de la Historia Clínica y en los documentos PDF. Puede modificarse desde **Editar paciente**. El respaldo versión 3 incluye el catálogo de aseguradoras y conserva sus relaciones.
+
+## Caja y cobros
+
+Los perfiles Administrador y Secretaría tienen acceso a **Caja**. Solo se pueden cobrar facturas cerradas y cada factura admite un único cobro por su monto total. El movimiento conserva método de pago, referencia, usuario que cobró y fecha/hora. Una factura cobrada no puede reabrirse ni eliminarse.
+
+El cuadre permite consultar el día actual, el mes actual o un rango manual de fechas. Muestra total, cantidad de transacciones, desglose por método, facturas pendientes y movimientos del período, y puede imprimirse. Los movimientos de caja también forman parte del respaldo versión 3.
+
 ## Contraseñas
 
 - El administrador crea cada cuenta con una contraseña temporal.

@@ -378,7 +378,7 @@ test('API odontologica: integracion completa', async (t) => {
 
       const exported = await request('/api/backup', { cookie: adminCookie });
       assert.equal(exported.status, 200);
-      assert.equal(exported.data.version, '2.0');
+      assert.equal(exported.data.version, '3.0');
       assert.ok(Array.isArray(exported.data.pacientes));
       assert.ok(Array.isArray(exported.data.historias));
       assert.ok(Array.isArray(exported.data.consultas));

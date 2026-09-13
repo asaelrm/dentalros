@@ -1,4 +1,6 @@
 /** Almacenamiento independiente por sitio, sin servidor ni cuentas de usuario. */
+const LOCAL_INSURERS = ['SeNaSa','Primera ARS','MAPFRE Salud ARS','ARS Universal','ARS Futuro','ARS SEMMA','ARS Renacer','ARS Monumental','ARS APS','ARS SIMAG','ARS Dr. Yunen','ARS Colegio Médico Dominicano (CMD)','ARS Reservas','ARS MetaSalud','ARS Amor y Paz','ARS Grupo Médico Asociado (GMA)','Plan de Salud Banco Central','Sin seguro / Privado']
+  .map((nombre, index) => ({ id: index + 1, nombre, codigo: nombre === 'Sin seguro / Privado' ? 'PRIVADO' : `ARS_${index + 1}` }));
 class LocalOdontoDB extends OdontoDB {
   constructor() {
     super(null);
@@ -26,7 +28,7 @@ class LocalOdontoDB extends OdontoDB {
     return { pacientes: [], historias: [], consultas: [], odontogramas: [], config: {
       id: 'clinica_config', nombreClinica: 'DentalRos', nombreDoctor: '', especialidad: '',
       colegiatura: '', telefono: '', email: '', direccion: '', piePagina: 'DentalRos'
-    }, nextPaciente: 1, nextConsulta: 1 };
+    }, insurers: structuredClone(LOCAL_INSURERS), cashPayments: [], nextInsurer: LOCAL_INSURERS.length + 1, nextPayment: 1, nextPaciente: 1, nextConsulta: 1 };
   }
 
   async access(write, operation) {
@@ -59,6 +61,15 @@ class LocalOdontoDB extends OdontoDB {
   }
 
   getCatalogo() { return this.access(false, data => data.catalogo || []); }
+  getInsurers() { return this.access(false, data => structuredClone(data.insurers || LOCAL_INSURERS)); }
+  createInsurer(nombre) {
+    return this.access(true, data => {
+      data.insurers ||= structuredClone(LOCAL_INSURERS); data.nextInsurer ||= data.insurers.reduce((max, item) => Math.max(max, item.id + 1), 1);
+      const clean = String(nombre || '').trim(); if (!clean) throw new Error('Indica el nombre del seguro.');
+      const existing = data.insurers.find(item => item.nombre.toLowerCase() === clean.toLowerCase()); if (existing) return existing;
+      const saved = { id: data.nextInsurer++, nombre: clean, codigo: `CUSTOM_${Date.now()}` }; data.insurers.push(saved); return saved;
+    });
+  }
   saveCatalogo(item) {
     return this.access(true, data => {
       data.catalogo ||= [];
@@ -80,7 +91,11 @@ class LocalOdontoDB extends OdontoDB {
       if (!patient.nombre?.trim() || !patient.apellido?.trim()) throw new Error('Indica nombre y apellido.');
       const previous = patient.id ? this.requirePatient(data, patient.id) : null;
       const id = previous ? previous.id : data.nextPaciente++;
-      const saved = { ...previous, ...patient, id, fechaRegistro: previous?.fechaRegistro || patient.fechaRegistro || new Date().toISOString(), fechaActualizacion: new Date().toISOString() };
+      data.insurers ||= structuredClone(LOCAL_INSURERS);
+      const insurer = patient.insuranceId ? data.insurers.find(item => item.id === Number(patient.insuranceId)) : null;
+      if (patient.insuranceId && !insurer) throw new Error('Seguro/ARS no válido.');
+      if (insurer?.codigo !== 'PRIVADO' && insurer && !String(patient.affiliateNumber || '').trim()) throw new Error('El número de afiliado/carnet es obligatorio.');
+      const saved = { ...previous, ...patient, insuranceId: insurer?.id || null, insuranceName: insurer?.nombre || '', id, fechaRegistro: previous?.fechaRegistro || patient.fechaRegistro || new Date().toISOString(), fechaActualizacion: new Date().toISOString() };
       if (previous) data.pacientes[data.pacientes.indexOf(previous)] = saved;
       else data.pacientes.push(saved);
       return id;
@@ -156,11 +171,32 @@ class LocalOdontoDB extends OdontoDB {
       return structuredClone(consultation);
     });
   }
+  getCashReport(from, to) {
+    return this.access(false, data => {
+      const payments = (data.cashPayments || []).filter(item => item.paidAt.slice(0, 10) >= from && item.paidAt.slice(0, 10) <= to);
+      const paidIds = new Set((data.cashPayments || []).map(item => item.consultationId));
+      const pendingInvoices = data.consultas.filter(item => item.factura?.estado === 'cerrada' && !paidIds.has(item.id)).map(item => {
+        const patient = this.requirePatient(data, item.pacienteId); return { consultationId: item.id, patientId: item.pacienteId, patientName: `${patient.nombre} ${patient.apellido}`, date: item.fecha, diagnosis: item.factura.diagnostico, total: item.factura.total };
+      });
+      const byMethod = {}; for (const item of payments) byMethod[item.paymentMethod] = Number(((byMethod[item.paymentMethod] || 0) + item.amount).toFixed(2));
+      return { from, to, payments: structuredClone(payments), pendingInvoices, total: Number(payments.reduce((sum, item) => sum + item.amount, 0).toFixed(2)), byMethod };
+    });
+  }
+  chargeInvoice(consultationId, payment) {
+    return this.access(true, data => {
+      data.cashPayments ||= []; data.nextPayment ||= data.cashPayments.reduce((max, item) => Math.max(max, item.id + 1), 1);
+      const consultation = data.consultas.find(item => item.id === Number(consultationId));
+      if (consultation?.factura?.estado !== 'cerrada') throw new Error('La factura debe estar cerrada antes de cobrarla.');
+      if (data.cashPayments.some(item => item.consultationId === consultation.id)) throw new Error('Esta factura ya fue cobrada.');
+      const saved = { id: data.nextPayment++, consultationId: consultation.id, patientId: consultation.pacienteId, amount: consultation.factura.total, paymentMethod: payment.paymentMethod || 'efectivo', reference: String(payment.reference || ''), receivedByName: 'Este navegador', paidAt: new Date().toISOString() };
+      data.cashPayments.push(saved); return structuredClone(saved);
+    });
+  }
   getConfig() { return this.access(false, data => data.config); }
   saveConfig(config) { return this.access(true, data => { data.config = { ...data.config, ...config }; return true; }); }
   exportAllData() {
-    return this.access(false, ({ pacientes, historias, consultas, odontogramas, config, catalogo }) => ({
-      version: '2.0', sistema: 'DentalRos', fechaExportacion: new Date().toISOString(), pacientes, historias, consultas, odontogramas, config, catalogo: catalogo || []
+    return this.access(false, ({ pacientes, historias, consultas, odontogramas, config, catalogo, insurers, cashPayments }) => ({
+      version: '3.0', sistema: 'DentalRos', fechaExportacion: new Date().toISOString(), pacientes, historias, consultas, odontogramas, config, catalogo: catalogo || [], insurers: insurers || LOCAL_INSURERS, cashPayments: cashPayments || []
     }));
   }
   importAllData(backup) {
@@ -198,6 +234,10 @@ class LocalOdontoDB extends OdontoDB {
           return { id: item.id, ...window.DentalBilling.catalogItem({ ...item, precio: item.precioCentavos / 100 }) };
         });
       } else incoming.catalogo = data.catalogo || [];
+      incoming.insurers = Array.isArray(backup.insurers) ? structuredClone(backup.insurers) : (data.insurers || structuredClone(LOCAL_INSURERS));
+      incoming.cashPayments = Array.isArray(backup.cashPayments) ? structuredClone(backup.cashPayments) : [];
+      incoming.nextInsurer = incoming.insurers.reduce((max, item) => Math.max(max, Number(item.id) + 1), 1);
+      incoming.nextPayment = incoming.cashPayments.reduce((max, item) => Math.max(max, Number(item.id) + 1), 1);
       for (const item of incoming.consultas) {
         if (item.procedimientos !== undefined) item.costo = window.DentalBilling.total(window.DentalBilling.validateSnapshot(item.procedimientos));
         if (item.factura !== undefined) {

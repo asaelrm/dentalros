@@ -2,9 +2,9 @@
 (function (root) {
   const labels = { admin: 'Administrador', doctor: 'Doctor/a', secretaria: 'Secretaría', auxiliar: 'Auxiliar de odontología', soporte: 'Soporte técnico', editor: 'Editor (anterior)', lector: 'Solo lectura' };
   const grants = {
-    admin: ['clinical.read', 'clinical.write', 'patients.write', 'consultations.write', 'catalog.write', 'invoice.write', 'invoice.price', 'invoice.reopen', 'users.manage'],
+    admin: ['clinical.read', 'clinical.write', 'patients.write', 'consultations.write', 'catalog.write', 'invoice.write', 'invoice.price', 'invoice.reopen', 'cash.read', 'cash.write', 'users.manage'],
     doctor: ['clinical.read', 'clinical.write', 'patients.write', 'consultations.write', 'catalog.write'],
-    secretaria: ['clinical.read', 'patients.write', 'consultations.write', 'invoice.write'],
+    secretaria: ['clinical.read', 'patients.write', 'consultations.write', 'invoice.write', 'cash.read', 'cash.write'],
     auxiliar: ['clinical.read'], soporte: ['users.manage'],
     editor: ['clinical.read', 'clinical.write', 'patients.write', 'consultations.write', 'invoice.write'], lector: ['clinical.read']
   };

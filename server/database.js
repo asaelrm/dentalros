@@ -88,6 +88,18 @@ function openDatabase(filename) {
 
   // Migración aditiva: conserva IDs, contraseñas, sesiones y registros previos.
   runTransaction(db, () => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS insurers (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nombre TEXT NOT NULL COLLATE NOCASE UNIQUE,
+        codigo TEXT NOT NULL COLLATE NOCASE UNIQUE,
+        activo INTEGER NOT NULL DEFAULT 1 CHECK (activo IN (0, 1))
+      ) STRICT;
+    `);
+    const patientColumns = new Set(db.prepare('PRAGMA table_info(pacientes)').all().map(column => column.name));
+    if (!patientColumns.has('insurance_id')) db.exec('ALTER TABLE pacientes ADD COLUMN insurance_id INTEGER REFERENCES insurers(id)');
+    if (!patientColumns.has('numero_afiliado')) db.exec('ALTER TABLE pacientes ADD COLUMN numero_afiliado TEXT');
+    if (!patientColumns.has('numero_poliza')) db.exec('ALTER TABLE pacientes ADD COLUMN numero_poliza TEXT');
     const columns = new Set(db.prepare('PRAGMA table_info(users)').all().map(column => column.name));
     if (!columns.has('professional_role')) db.exec("ALTER TABLE users ADD COLUMN professional_role TEXT");
     if (!columns.has('email')) db.exec("ALTER TABLE users ADD COLUMN email TEXT");
@@ -108,7 +120,30 @@ function openDatabase(filename) {
         precio_centavos INTEGER NOT NULL DEFAULT 0 CHECK (precio_centavos >= 0),
         activo INTEGER NOT NULL DEFAULT 1 CHECK (activo IN (0, 1))
       ) STRICT;
+      CREATE TABLE IF NOT EXISTS cash_payments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        consultation_id INTEGER NOT NULL UNIQUE REFERENCES consultas(id) ON DELETE RESTRICT,
+        patient_id INTEGER NOT NULL REFERENCES pacientes(id) ON DELETE RESTRICT,
+        amount_centavos INTEGER NOT NULL CHECK (amount_centavos >= 0),
+        payment_method TEXT NOT NULL CHECK (payment_method IN ('efectivo', 'tarjeta', 'transferencia', 'seguro', 'otro')),
+        reference TEXT,
+        received_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        received_by_name TEXT NOT NULL,
+        paid_at TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS idx_cash_payments_paid_at ON cash_payments(paid_at);
+      CREATE INDEX IF NOT EXISTS idx_cash_payments_patient ON cash_payments(patient_id);
     `);
+    const insurers = [
+      ['SeNaSa','SENASA'],['Primera ARS','PRIMERA'],['MAPFRE Salud ARS','MAPFRE'],['ARS Universal','UNIVERSAL'],
+      ['ARS Futuro','FUTURO'],['ARS SEMMA','SEMMA'],['ARS Renacer','RENACER'],['ARS Monumental','MONUMENTAL'],
+      ['ARS APS','APS'],['ARS SIMAG','SIMAG'],['ARS Dr. Yunen','YUNEN'],['ARS Colegio Médico Dominicano (CMD)','CMD'],
+      ['ARS Reservas','RESERVAS'],['ARS MetaSalud','METASALUD'],['ARS Amor y Paz','AMOR_PAZ'],
+      ['ARS Grupo Médico Asociado (GMA)','GMA'],['Plan de Salud Banco Central','BANCO_CENTRAL'],
+      ['Sin seguro / Privado','PRIVADO']
+    ];
+    const insertInsurer = db.prepare('INSERT OR IGNORE INTO insurers (nombre, codigo) VALUES (?, ?)');
+    for (const insurer of insurers) insertInsurer.run(...insurer);
   });
 
   db.prepare('INSERT OR IGNORE INTO configuracion (id, data) VALUES (?, ?)')

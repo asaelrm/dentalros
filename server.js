@@ -349,8 +349,17 @@ function parseData(text) {
 }
 
 function patientFromRow(row) {
-  return { ...parseData(row.data), id: Number(row.id) };
+  return {
+    ...parseData(row.data), id: Number(row.id),
+    insuranceId: row.insurance_id == null ? null : Number(row.insurance_id),
+    insuranceName: row.insurance_name || '',
+    affiliateNumber: row.numero_afiliado || '',
+    policyNumber: row.numero_poliza || ''
+  };
 }
+
+const PATIENT_SELECT = `SELECT p.id, p.data, p.insurance_id, p.numero_afiliado, p.numero_poliza,
+  i.nombre AS insurance_name FROM pacientes p LEFT JOIN insurers i ON i.id = p.insurance_id`;
 
 function historyFromRow(row) {
   return { ...parseData(row.data), pacienteId: Number(row.paciente_id) };
@@ -382,7 +391,7 @@ function ensurePatient(db, patientId) {
 
 function validatePatientInput(body) {
   validateJsonObject(body, 'El paciente');
-  const data = cleanData(body, ['id', 'pacienteId']);
+  const data = cleanData(body, ['id', 'pacienteId', 'insuranceId', 'affiliateNumber', 'policyNumber']);
   requireTextField(data, 'nombre', 'El nombre');
   requireTextField(data, 'apellido', 'El apellido');
   validateKnownStrings(data, [
@@ -395,6 +404,17 @@ function validatePatientInput(body) {
     throw new HttpError(400, 'La edad debe ser un numero entero entre 0 y 150.');
   }
   return data;
+}
+
+function patientInsuranceInput(db, body) {
+  const insuranceId = body.insuranceId == null || body.insuranceId === '' ? null : positiveId(body.insuranceId, 'Seguro/ARS');
+  const insurer = insuranceId ? db.prepare('SELECT * FROM insurers WHERE id = ? AND activo = 1').get(insuranceId) : null;
+  if (insuranceId && !insurer) throw new HttpError(400, 'El seguro/ARS seleccionado no existe o está inactivo.');
+  const affiliateNumber = String(body.affiliateNumber || '').trim();
+  const policyNumber = String(body.policyNumber || '').trim();
+  if (affiliateNumber.length > 100 || policyNumber.length > 100) throw new HttpError(400, 'Los números de seguro admiten hasta 100 caracteres.');
+  if (insurer && insurer.codigo !== 'PRIVADO' && !affiliateNumber) throw new HttpError(400, 'El número de afiliado/carnet es obligatorio para este seguro.');
+  return { insuranceId, affiliateNumber, policyNumber };
 }
 
 function validateHistoryInput(body) {
@@ -450,15 +470,17 @@ function getConfig(db) {
 
 function getBackup(db) {
   return {
-    version: '2.0',
+    version: '3.0',
     fechaExportacion: nowIso(),
     sistema: 'DentalRos - Sistema Odontológico Inteligente',
-    pacientes: db.prepare('SELECT id, data FROM pacientes ORDER BY id').all().map(patientFromRow),
+    pacientes: db.prepare(`${PATIENT_SELECT} ORDER BY p.id`).all().map(patientFromRow),
     historias: db.prepare('SELECT paciente_id, data FROM historias ORDER BY paciente_id').all().map(historyFromRow),
     consultas: db.prepare('SELECT id, paciente_id, data FROM consultas ORDER BY id').all().map(consultationFromRow),
     odontogramas: db.prepare('SELECT paciente_id, data FROM odontogramas ORDER BY paciente_id').all().map(odontogramFromRow),
     config: getConfig(db),
-    catalogo: getCatalog(db)
+    catalogo: getCatalog(db),
+    insurers: db.prepare('SELECT id, nombre, codigo, activo FROM insurers ORDER BY id').all().map(item => ({ ...item, id: Number(item.id), activo: Boolean(item.activo) })),
+    cashPayments: db.prepare('SELECT * FROM cash_payments ORDER BY id').all().map(row => ({ id: Number(row.id), consultationId: Number(row.consultation_id), patientId: Number(row.patient_id), amountCentavos: Number(row.amount_centavos), paymentMethod: row.payment_method, reference: row.reference || '', receivedByName: row.received_by_name, paidAt: row.paid_at }))
   };
 }
 
@@ -494,7 +516,7 @@ function normalizeBackup(body) {
 
   const pacientes = body.pacientes.map((record) => {
     validateJsonObject(record, 'Un paciente del respaldo');
-    return { id: positiveId(record.id, 'ID de paciente'), data: cleanData(record, ['id', 'pacienteId']) };
+    return { id: positiveId(record.id, 'ID de paciente'), insuranceId: record.insuranceId == null ? null : positiveId(record.insuranceId, 'Seguro de paciente'), affiliateNumber: String(record.affiliateNumber || ''), policyNumber: String(record.policyNumber || ''), data: cleanData(record, ['id', 'pacienteId', 'insuranceId', 'insuranceName', 'affiliateNumber', 'policyNumber']) };
   });
   const historiasRaw = normalizeLegacyCollection(
     body.historias ?? body.historiasClinicas,
@@ -561,6 +583,24 @@ function normalizeBackup(body) {
     catalogo = body.catalogo.map(item => ({ id: positiveId(item.id, 'ID de catálogo'), ...billing.catalogItem({ ...item, precio: item.precioCentavos / 100 }) }));
     ensureUnique(catalogo, item => item.id, 'catalogo');
   }
+  let insurers = null;
+  if (body.insurers !== undefined) {
+    if (!Array.isArray(body.insurers) || body.insurers.length > 10000) throw new HttpError(400, 'Catálogo de seguros inválido.');
+    insurers = body.insurers.map(item => ({ id: positiveId(item.id, 'ID de seguro'), nombre: String(item.nombre || '').trim(), codigo: String(item.codigo || '').trim(), activo: item.activo !== false }));
+    ensureUnique(insurers, item => item.id, 'seguros');
+    if (insurers.some(item => !item.nombre || !item.codigo)) throw new HttpError(400, 'El respaldo contiene un seguro inválido.');
+    const insurerIds = new Set(insurers.map(item => item.id));
+    if (pacientes.some(item => item.insuranceId && !insurerIds.has(item.insuranceId))) throw new HttpError(400, 'Un paciente referencia un seguro inexistente.');
+  }
+  let cashPayments = [];
+  if (body.cashPayments !== undefined) {
+    if (!Array.isArray(body.cashPayments) || body.cashPayments.length > 100000) throw new HttpError(400, 'Movimientos de caja inválidos.');
+    const consultationIds = new Set(consultas.map(item => item.id));
+    cashPayments = body.cashPayments.map(item => ({ id: positiveId(item.id, 'ID de cobro'), consultationId: positiveId(item.consultationId, 'Consulta del cobro'), patientId: positiveId(item.patientId, 'Paciente del cobro'), amountCentavos: Number(item.amountCentavos), paymentMethod: String(item.paymentMethod), reference: String(item.reference || ''), receivedByName: String(item.receivedByName || ''), paidAt: String(item.paidAt || '') }));
+    ensureUnique(cashPayments, item => item.id, 'cobros');
+    ensureUnique(cashPayments, item => item.consultationId, 'cobros por factura');
+    if (cashPayments.some(item => !consultationIds.has(item.consultationId) || !patientIds.has(item.patientId) || !Number.isSafeInteger(item.amountCentavos) || item.amountCentavos < 0 || !['efectivo','tarjeta','transferencia','seguro','otro'].includes(item.paymentMethod) || !item.receivedByName || !item.paidAt)) throw new HttpError(400, 'El respaldo contiene un cobro inválido.');
+  }
   for (const item of consultas) {
     if (item.data.procedimientos !== undefined) {
       billing.validateSnapshot(item.data.procedimientos);
@@ -575,12 +615,13 @@ function normalizeBackup(body) {
       if (invoice.estado === 'cerrada' && typeof invoice.cerradaEn !== 'string') throw new HttpError(400, 'Una factura cerrada no tiene fecha de cierre válida.');
     }
   }
-  return { pacientes, historias, consultas, odontogramas, config, catalogo };
+  return { pacientes, historias, consultas, odontogramas, config, catalogo, insurers, cashPayments };
 }
 
 function importBackup(db, backup, actorId) {
   return runTransaction(db, () => {
     db.exec(`
+      DELETE FROM cash_payments;
       DELETE FROM odontogramas;
       DELETE FROM consultas;
       DELETE FROM historias;
@@ -588,12 +629,17 @@ function importBackup(db, backup, actorId) {
       DELETE FROM sqlite_sequence WHERE name IN ('pacientes', 'consultas');
     `);
 
-    const insertPatient = db.prepare('INSERT INTO pacientes (id, data) VALUES (?, ?)');
+    if (backup.insurers) {
+      db.exec('DELETE FROM insurers;');
+      const insertInsurer = db.prepare('INSERT INTO insurers (id, nombre, codigo, activo) VALUES (?, ?, ?, ?)');
+      for (const item of backup.insurers) insertInsurer.run(item.id, item.nombre, item.codigo, Number(item.activo));
+    }
+    const insertPatient = db.prepare('INSERT INTO pacientes (id, data, insurance_id, numero_afiliado, numero_poliza) VALUES (?, ?, ?, ?, ?)');
     const insertHistory = db.prepare('INSERT INTO historias (paciente_id, data) VALUES (?, ?)');
     const insertConsultation = db.prepare('INSERT INTO consultas (id, paciente_id, data) VALUES (?, ?, ?)');
     const insertOdontogram = db.prepare('INSERT INTO odontogramas (paciente_id, data) VALUES (?, ?)');
 
-    for (const item of backup.pacientes) insertPatient.run(item.id, JSON.stringify(item.data));
+    for (const item of backup.pacientes) insertPatient.run(item.id, JSON.stringify(item.data), item.insuranceId, item.affiliateNumber || null, item.policyNumber || null);
     for (const item of backup.historias) insertHistory.run(item.pacienteId, JSON.stringify(item.data));
     for (const item of backup.consultas) {
       insertConsultation.run(item.id, item.pacienteId, JSON.stringify(item.data));
@@ -608,6 +654,8 @@ function importBackup(db, backup, actorId) {
       const insert = db.prepare('INSERT INTO catalogo (id, tipo, nombre, precio_centavos, activo) VALUES (?, ?, ?, ?, ?)');
       for (const item of backup.catalogo) insert.run(item.id, item.tipo, item.nombre, item.precioCentavos, Number(item.activo));
     }
+    const insertPayment = db.prepare('INSERT INTO cash_payments (id, consultation_id, patient_id, amount_centavos, payment_method, reference, received_by_name, paid_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const item of backup.cashPayments || []) insertPayment.run(item.id, item.consultationId, item.patientId, item.amountCentavos, item.paymentMethod, item.reference || null, item.receivedByName, item.paidAt);
     writeAudit(db, actorId, 'backup_import', 'backup', null, {
       pacientes: backup.pacientes.length,
       historias: backup.historias.length,
@@ -622,6 +670,9 @@ function isKnownProtectedPath(pathname) {
     pathname === '/api/auth/logout' ||
     pathname === '/api/auth/change-password' ||
     pathname === '/api/users' ||
+    pathname === '/api/insurers' ||
+    pathname === '/api/cash' ||
+    /^\/api\/consultas\/\d+\/charge$/.test(pathname) ||
     pathname === '/api/catalogo' || /^\/api\/catalogo\/\d+$/.test(pathname) ||
     /^\/api\/users\/\d+(?:\/reset-password)?$/.test(pathname) ||
     pathname === '/api/pacientes' ||
@@ -874,6 +925,83 @@ async function handleApi(req, res, pathname, context) {
     throw new HttpError(403, 'Debes cambiar la contrasena temporal antes de usar el sistema.');
   }
 
+  if (pathname === '/api/insurers' && method === 'GET') {
+    requirePermission(auth, 'clinical.read');
+    return sendJson(res, 200, db.prepare('SELECT id, nombre, codigo FROM insurers WHERE activo = 1 ORDER BY id').all());
+  }
+
+  if (pathname === '/api/insurers' && method === 'POST') {
+    requirePermission(auth, 'patients.write');
+    const body = requireObject(await readJsonBody(req, bodyLimit));
+    const nombre = String(body.nombre || '').trim();
+    if (!nombre || nombre.length > 150) throw new HttpError(400, 'El nombre del seguro es obligatorio y admite hasta 150 caracteres.');
+    const existing = db.prepare('SELECT id, nombre, codigo FROM insurers WHERE nombre = ? COLLATE NOCASE').get(nombre);
+    if (existing) return sendJson(res, 200, existing);
+    const baseCode = nombre.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/[^A-Z0-9]+/g, '_').replace(/^_|_$/g, '').slice(0, 40) || 'ARS';
+    let codigo = baseCode;
+    let suffix = 2;
+    while (db.prepare('SELECT 1 FROM insurers WHERE codigo = ? COLLATE NOCASE').get(codigo)) codigo = `${baseCode}_${suffix++}`;
+    const id = Number(db.prepare('INSERT INTO insurers (nombre, codigo) VALUES (?, ?)').run(nombre, codigo).lastInsertRowid);
+    writeAudit(db, auth.user.id, 'insurer_create', 'insurer', id, { nombre });
+    return sendJson(res, 201, { id, nombre, codigo });
+  }
+
+  if (pathname === '/api/cash' && method === 'GET') {
+    requirePermission(auth, 'cash.read');
+    const requestUrl = new URL(req.url, 'http://localhost');
+    const today = nowIso().slice(0, 10);
+    const from = requestUrl.searchParams.get('from') || today;
+    const to = requestUrl.searchParams.get('to') || from;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw new HttpError(400, 'El rango de fechas no es válido.');
+    const payments = db.prepare(`SELECT cp.*, json_extract(p.data, '$.nombre') AS patient_name,
+      json_extract(p.data, '$.apellido') AS patient_lastname FROM cash_payments cp
+      JOIN pacientes p ON p.id = cp.patient_id WHERE substr(cp.paid_at, 1, 10) BETWEEN ? AND ?
+      ORDER BY cp.paid_at DESC, cp.id DESC`).all(from, to).map(row => ({
+        id: Number(row.id), consultationId: Number(row.consultation_id), patientId: Number(row.patient_id),
+        patientName: `${row.patient_name || ''} ${row.patient_lastname || ''}`.trim(), amount: Number(row.amount_centavos) / 100,
+        paymentMethod: row.payment_method, reference: row.reference || '', receivedByName: row.received_by_name, paidAt: row.paid_at
+      }));
+    const pendingInvoices = db.prepare(`SELECT c.id, c.paciente_id, c.data, p.data AS patient_data FROM consultas c
+      JOIN pacientes p ON p.id = c.paciente_id LEFT JOIN cash_payments cp ON cp.consultation_id = c.id
+      WHERE json_extract(c.data, '$.factura.estado') = 'cerrada' AND cp.id IS NULL ORDER BY c.id DESC`).all().map(row => {
+        const consultation = parseData(row.data); const patient = parseData(row.patient_data);
+        return { consultationId: Number(row.id), patientId: Number(row.paciente_id), patientName: `${patient.nombre || ''} ${patient.apellido || ''}`.trim(), date: consultation.fecha || '', diagnosis: consultation.factura.diagnostico, total: consultation.factura.total };
+      });
+    const byMethod = {};
+    for (const payment of payments) byMethod[payment.paymentMethod] = Number(((byMethod[payment.paymentMethod] || 0) + payment.amount).toFixed(2));
+    return sendJson(res, 200, { from, to, payments, pendingInvoices, total: Number(payments.reduce((sum, item) => sum + item.amount, 0).toFixed(2)), byMethod });
+  }
+
+  const chargeMatch = pathname.match(/^\/api\/consultas\/(\d+)\/charge$/);
+  if (chargeMatch && method === 'POST') {
+    requirePermission(auth, 'cash.write');
+    const consultationId = positiveId(chargeMatch[1], 'ID de consulta');
+    const row = db.prepare('SELECT id, paciente_id, data FROM consultas WHERE id = ?').get(consultationId);
+    if (!row) throw new HttpError(404, 'Consulta no encontrada.');
+    const consultation = parseData(row.data);
+    if (consultation.factura?.estado !== 'cerrada') throw new HttpError(409, 'La factura debe estar cerrada antes de cobrarla.');
+    const body = requireObject(await readJsonBody(req, bodyLimit));
+    const paymentMethod = String(body.paymentMethod || 'efectivo');
+    if (!['efectivo', 'tarjeta', 'transferencia', 'seguro', 'otro'].includes(paymentMethod)) throw new HttpError(400, 'Método de pago no válido.');
+    const reference = String(body.reference || '').trim();
+    if (reference.length > 150) throw new HttpError(400, 'La referencia admite hasta 150 caracteres.');
+    const amountCentavos = Math.round(Number(consultation.factura.total) * 100);
+    const paidAt = nowIso();
+    let id;
+    try {
+      id = runTransaction(db, () => {
+        const result = db.prepare(`INSERT INTO cash_payments (consultation_id, patient_id, amount_centavos, payment_method, reference, received_by, received_by_name, paid_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(consultationId, Number(row.paciente_id), amountCentavos, paymentMethod, reference || null, auth.user.id, auth.user.displayName, paidAt);
+        writeAudit(db, auth.user.id, 'cash_payment', 'consulta', consultationId, { amountCentavos, paymentMethod });
+        return Number(result.lastInsertRowid);
+      });
+    } catch (error) {
+      if (String(error.message).includes('UNIQUE')) throw new HttpError(409, 'Esta factura ya fue cobrada.');
+      throw error;
+    }
+    return sendJson(res, 201, { id, consultationId, amount: amountCentavos / 100, paymentMethod, reference, receivedByName: auth.user.displayName, paidAt });
+  }
+
   if (pathname === '/api/users' && method === 'GET') {
     requireUserManager(auth);
     const users = db.prepare('SELECT * FROM users ORDER BY id').all().map(publicUser);
@@ -1036,29 +1164,32 @@ async function handleApi(req, res, pathname, context) {
   if (await handleCatalog(req, res, pathname, context, auth)) return;
 
   if (pathname === '/api/pacientes' && method === 'GET') {
-    const patients = db.prepare('SELECT id, data FROM pacientes ORDER BY id').all().map(patientFromRow);
+    const patients = db.prepare(`${PATIENT_SELECT} ORDER BY p.id`).all().map(patientFromRow);
     return sendJson(res, 200, patients);
   }
 
   if (pathname === '/api/pacientes' && method === 'POST') {
     requirePermission(auth, 'patients.write');
-    const data = validatePatientInput(requireObject(await readJsonBody(req, bodyLimit)));
+    const body = requireObject(await readJsonBody(req, bodyLimit));
+    const data = validatePatientInput(body);
+    const insurance = patientInsuranceInput(db, body);
     const timestamp = nowIso();
     data.fechaRegistro = data.fechaRegistro || timestamp;
     data.fechaActualizacion = timestamp;
     const patientId = runTransaction(db, () => {
-      const result = db.prepare('INSERT INTO pacientes (data) VALUES (?)').run(JSON.stringify(data));
+      const result = db.prepare('INSERT INTO pacientes (data, insurance_id, numero_afiliado, numero_poliza) VALUES (?, ?, ?, ?)')
+        .run(JSON.stringify(data), insurance.insuranceId, insurance.affiliateNumber || null, insurance.policyNumber || null);
       const id = Number(result.lastInsertRowid);
       writeAudit(db, auth.user.id, 'patient_create', 'paciente', id);
       return id;
     });
-    return sendJson(res, 201, { ...data, id: patientId });
+    return sendJson(res, 201, patientFromRow(db.prepare(`${PATIENT_SELECT} WHERE p.id = ?`).get(patientId)));
   }
 
   const patientResourceMatch = pathname.match(/^\/api\/pacientes\/(\d+)$/);
   if (patientResourceMatch && method === 'GET') {
     const patientId = positiveId(patientResourceMatch[1], 'ID de paciente');
-    const row = db.prepare('SELECT id, data FROM pacientes WHERE id = ?').get(patientId);
+    const row = db.prepare(`${PATIENT_SELECT} WHERE p.id = ?`).get(patientId);
     if (!row) throw new HttpError(404, 'Paciente no encontrado.');
     return sendJson(res, 200, patientFromRow(row));
   }
@@ -1066,21 +1197,25 @@ async function handleApi(req, res, pathname, context) {
   if (patientResourceMatch && method === 'PUT') {
     requirePermission(auth, 'patients.write');
     const patientId = positiveId(patientResourceMatch[1], 'ID de paciente');
-    const row = db.prepare('SELECT id, data FROM pacientes WHERE id = ?').get(patientId);
+    const row = db.prepare(`${PATIENT_SELECT} WHERE p.id = ?`).get(patientId);
     if (!row) throw new HttpError(404, 'Paciente no encontrado.');
-    const incoming = validatePatientInput(requireObject(await readJsonBody(req, bodyLimit)));
+    const body = requireObject(await readJsonBody(req, bodyLimit));
+    const incoming = validatePatientInput(body);
+    const insurance = patientInsuranceInput(db, body);
     const data = { ...parseData(row.data), ...incoming, fechaActualizacion: nowIso() };
     runTransaction(db, () => {
-      db.prepare('UPDATE pacientes SET data = ? WHERE id = ?').run(JSON.stringify(data), patientId);
+      db.prepare('UPDATE pacientes SET data = ?, insurance_id = ?, numero_afiliado = ?, numero_poliza = ? WHERE id = ?')
+        .run(JSON.stringify(data), insurance.insuranceId, insurance.affiliateNumber || null, insurance.policyNumber || null, patientId);
       writeAudit(db, auth.user.id, 'patient_update', 'paciente', patientId);
     });
-    return sendJson(res, 200, { ...data, id: patientId });
+    return sendJson(res, 200, patientFromRow(db.prepare(`${PATIENT_SELECT} WHERE p.id = ?`).get(patientId)));
   }
 
   if (patientResourceMatch && method === 'DELETE') {
     requireRole(auth, CLINICAL_WRITERS);
     const patientId = positiveId(patientResourceMatch[1], 'ID de paciente');
     if (!patientExists(db, patientId)) throw new HttpError(404, 'Paciente no encontrado.');
+    if (db.prepare('SELECT 1 FROM cash_payments WHERE patient_id = ?').get(patientId)) throw new HttpError(409, 'No puedes eliminar un paciente con movimientos de caja registrados.');
     runTransaction(db, () => {
       db.prepare('DELETE FROM pacientes WHERE id = ?').run(patientId);
       writeAudit(db, auth.user.id, 'patient_delete', 'paciente', patientId);
@@ -1198,6 +1333,7 @@ async function handleApi(req, res, pathname, context) {
     if (action === 'reabrir' && method === 'POST') {
       requirePermission(auth, 'invoice.reopen');
       if (!consultation.factura || consultation.factura.estado !== 'cerrada') throw new HttpError(409, 'La factura no está cerrada.');
+      if (db.prepare('SELECT 1 FROM cash_payments WHERE consultation_id = ?').get(consultationId)) throw new HttpError(409, 'No puedes reabrir una factura que ya fue cobrada.');
       consultation.factura.estado = 'abierta';
       consultation.factura.cerradaEn = null;
       consultation.factura.actualizadaEn = nowIso();
@@ -1214,6 +1350,7 @@ async function handleApi(req, res, pathname, context) {
     const consultationId = positiveId(consultationMatch[1], 'ID de consulta');
     const row = db.prepare('SELECT paciente_id, data FROM consultas WHERE id = ?').get(consultationId);
     if (!row) throw new HttpError(404, 'Consulta no encontrada.');
+    if (db.prepare('SELECT 1 FROM cash_payments WHERE consultation_id = ?').get(consultationId)) throw new HttpError(409, 'No puedes eliminar una consulta con un cobro registrado.');
     if (parseData(row.data).factura?.estado === 'cerrada') requirePermission(auth, 'invoice.reopen');
     runTransaction(db, () => {
       db.prepare('DELETE FROM consultas WHERE id = ?').run(consultationId);

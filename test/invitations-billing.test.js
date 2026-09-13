@@ -99,6 +99,15 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del catÃ
   assert.equal(patient.status, 201);
   const patientId = patient.data.id;
   assert.equal((await f.request(`/api/pacientes/${patientId}/historia`, 'PUT', { diagnosticoGeneral: 'No permitido' }, sessions.secretaria)).status, 403);
+  const insurers = await f.request('/api/insurers', 'GET', undefined, sessions.secretaria);
+  assert.equal(insurers.status, 200);
+  assert.equal(insurers.data.length, 18);
+  const customInsurer = await f.request('/api/insurers', 'POST', { nombre: 'ARS Comunitaria' }, sessions.secretaria);
+  assert.equal(customInsurer.status, 201);
+  assert.equal((await f.request('/api/insurers', 'POST', { nombre: 'ars comunitaria' }, sessions.secretaria)).data.id, customInsurer.data.id);
+  const insuredPatient = await f.request('/api/pacientes', 'POST', { nombre: 'Paciente', apellido: 'Asegurado', insuranceId: customInsurer.data.id, affiliateNumber: 'AF-100', policyNumber: 'POL-9' }, sessions.secretaria);
+  assert.equal(insuredPatient.data.insuranceName, 'ARS Comunitaria');
+  assert.equal(insuredPatient.data.affiliateNumber, 'AF-100');
   assert.equal((await f.request(`/api/pacientes/${patientId}/consultas`, 'POST', { motivo: 'No permitido' }, sessions.auxiliar)).status, 403);
   const line = { procedimientoId: procedure.data.id, diagnosticoId: diagnosis.data.id, cantidad: 3 };
   const visitPath = `/api/pacientes/${patientId}/consultas`;
@@ -142,6 +151,22 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del catÃ
   invalid.consultas[0].factura.procedimientos[0].subtotalCentavos = -1;
   assert.equal((await f.request('/api/backup/import', 'POST', invalid, f.admin)).status, 400);
   assert.equal((await f.request('/api/catalogo', 'GET', undefined, sessions.doctor)).data.length, 1);
+  assert.equal((await f.request('/api/cash', 'GET', undefined, sessions.auxiliar)).status, 403);
+  const charge = await f.request(`/api/consultas/${visit.data.id}/charge`, 'POST', { paymentMethod: 'tarjeta', reference: 'APROB-1' }, sessions.secretaria);
+  assert.equal(charge.status, 201);
+  assert.equal(charge.data.amount, 60);
+  assert.equal((await f.request(`/api/consultas/${visit.data.id}/charge`, 'POST', { paymentMethod: 'efectivo' }, sessions.secretaria)).status, 409);
+  assert.equal((await f.request(`${invoicePath}/reabrir`, 'POST', {}, f.admin)).status, 409);
+  const today = new Date().toISOString().slice(0, 10);
+  const cash = await f.request(`/api/cash?from=${today}&to=${today}`, 'GET', undefined, f.admin);
+  assert.equal(cash.data.total, 60);
+  assert.equal(cash.data.payments[0].reference, 'APROB-1');
+  assert.equal(cash.data.pendingInvoices.length, 0);
+  const financialBackup = (await f.request('/api/backup', 'GET', undefined, f.admin)).data;
+  assert.equal(financialBackup.insurers.some(item => item.nombre === 'ARS Comunitaria'), true);
+  assert.equal(financialBackup.cashPayments[0].amountCentavos, 6000);
+  assert.equal((await f.request('/api/backup/import', 'POST', financialBackup, f.admin)).status, 200);
+  assert.equal((await f.request(`/api/cash?from=${today}&to=${today}`, 'GET', undefined, f.admin)).data.total, 60);
 });
 
 test('ConfiguraciÃ³n SMTP exige origen vÃ¡lido y TLS', () => {
