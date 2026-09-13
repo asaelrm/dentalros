@@ -21,7 +21,7 @@ async function fixture(t) {
   const token = () => new URLSearchParams(new URL(mails.at(-1).url).hash.slice(1)).get('invite');
   const invite = (role, username = role) => request('/api/users', 'POST', { username, displayName: username, role, email: `${username}@example.test` }, admin);
   const activate = password => request('/api/auth/accept-invitation', 'POST', { token: token(), password: password || 'PrivadaPersonal123!' });
-  const login = username => request('/api/auth/login', 'POST', { username, password: 'PrivadaPersonal123!' });
+  const login = (username, password = 'PrivadaPersonal123!') => request('/api/auth/login', 'POST', { username, password });
   return { server, request, admin, mails, token, invite, activate, login, fail: value => { failMail = value; } };
 }
 
@@ -40,9 +40,9 @@ test('Invitaciones: privacidad, expiración, uso único, reenvío y errores SMTP
   assert.equal(stored.token_hash, createHash('sha256').update(token).digest('hex'));
   assert.ok(!JSON.stringify(stored).includes(token));
   assert.equal((await f.activate('corta')).status, 400);
-  assert.equal((await f.activate()).status, 200);
+  assert.equal((await f.activate('123456')).status, 200);
   assert.equal((await f.activate()).status, 400);
-  const logged = await f.login('doctor');
+  const logged = await f.login('doctor', '123456');
   assert.equal(logged.status, 200);
   assert.equal(logged.data.user.invitationPending, false);
   assert.equal(logged.data.user.mustChangePassword, false);

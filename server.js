@@ -164,8 +164,8 @@ function validateDisplayName(value) {
 }
 
 function validatePassword(value) {
-  if (typeof value !== 'string' || value.length < 10 || value.length > 1024) {
-    throw new HttpError(400, 'La contrasena debe tener entre 10 y 1024 caracteres.');
+  if (typeof value !== 'string' || value.length < 6 || value.length > 1024) {
+    throw new HttpError(400, 'La contrasena debe tener entre 6 y 1024 caracteres.');
   }
   return value;
 }

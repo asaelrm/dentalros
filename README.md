@@ -30,7 +30,7 @@ No existe una contraseña predeterminada guardada en el código. Cuando la base 
 
 - Nombre completo.
 - Nombre de usuario.
-- Contraseña de al menos 10 caracteres.
+- Contraseña de al menos 6 caracteres.
 
 Después de crear esa cuenta, la configuración inicial se bloquea y solamente un administrador autenticado puede crear otros usuarios.
 
