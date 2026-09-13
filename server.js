@@ -26,6 +26,7 @@ const scryptAsync = promisify(scrypt);
 const ROOT_DIR = __dirname;
 const COOKIE_NAME = 'odontologia_session';
 const DEFAULT_BODY_LIMIT = 5 * 1024 * 1024;
+const ATTACHMENT_LIMIT = 10 * 1024 * 1024;
 const DEFAULT_SESSION_MAX_AGE = 8 * 60 * 60;
 const USERNAME_PATTERN = /^[a-z0-9][a-z0-9._-]{2,31}$/;
 const ROLES = new Set(Object.keys(permissions.labels));
@@ -239,6 +240,23 @@ async function readJsonBody(req, limit) {
   } catch {
     throw new HttpError(400, 'El cuerpo contiene JSON invalido.');
   }
+}
+
+async function readBinaryBody(req, limit) {
+  const declaredLength = Number(req.headers['content-length']);
+  if (Number.isFinite(declaredLength) && declaredLength > limit) {
+    req.resume();
+    throw new HttpError(413, 'El archivo excede el límite de 10 MB.');
+  }
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req) {
+    size += chunk.length;
+    if (size > limit) throw new HttpError(413, 'El archivo excede el límite de 10 MB.');
+    chunks.push(chunk);
+  }
+  if (!size) throw new HttpError(400, 'Selecciona un archivo para adjuntar.');
+  return Buffer.concat(chunks);
 }
 
 async function createPasswordRecord(password) {
@@ -678,7 +696,8 @@ function isKnownProtectedPath(pathname) {
     pathname === '/api/catalogo' || /^\/api\/catalogo\/\d+$/.test(pathname) ||
     /^\/api\/users\/\d+(?:\/reset-password)?$/.test(pathname) ||
     pathname === '/api/pacientes' ||
-    /^\/api\/pacientes\/\d+(?:\/(?:historia|consultas|odontograma))?$/.test(pathname) ||
+    /^\/api\/pacientes\/\d+(?:\/(?:historia|consultas|odontograma|adjuntos))?$/.test(pathname) ||
+    /^\/api\/adjuntos\/\d+$/.test(pathname) ||
     /^\/api\/consultas\/\d+$/.test(pathname) ||
     /^\/api\/consultas\/\d+\/factura(?:\/(?:cerrar|reabrir))?$/.test(pathname) ||
     pathname === '/api/config' ||
@@ -1248,6 +1267,55 @@ async function handleApi(req, res, pathname, context) {
       writeAudit(db, auth.user.id, 'history_update', 'historia', patientId);
     });
     return sendJson(res, 200, { ...data, pacienteId: patientId });
+  }
+
+  const patientAttachmentsMatch = pathname.match(/^\/api\/pacientes\/(\d+)\/adjuntos$/);
+  if (patientAttachmentsMatch && method === 'GET') {
+    const patientId = positiveId(patientAttachmentsMatch[1], 'ID de paciente');
+    ensurePatient(db, patientId);
+    const items = db.prepare(`SELECT id, patient_id, filename, mime_type, size_bytes, uploaded_by_name, created_at
+      FROM clinical_attachments WHERE patient_id = ? ORDER BY created_at DESC, id DESC`).all(patientId);
+    return sendJson(res, 200, items.map(item => ({ id: Number(item.id), patientId: Number(item.patient_id), filename: item.filename, mimeType: item.mime_type, sizeBytes: Number(item.size_bytes), uploadedByName: item.uploaded_by_name, createdAt: item.created_at })));
+  }
+  if (patientAttachmentsMatch && method === 'POST') {
+    requireRole(auth, CLINICAL_WRITERS);
+    const patientId = positiveId(patientAttachmentsMatch[1], 'ID de paciente');
+    ensurePatient(db, patientId);
+    let filename;
+    try { filename = decodeURIComponent(String(req.headers['x-file-name'] || '')).trim(); } catch { throw new HttpError(400, 'El nombre del archivo no es válido.'); }
+    filename = path.basename(filename).replace(/[\x00-\x1f\x7f]/g, '').slice(0, 180);
+    if (!filename) throw new HttpError(400, 'El nombre del archivo es obligatorio.');
+    const mimeType = String(req.headers['content-type'] || '').split(';', 1)[0].toLowerCase();
+    const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']);
+    if (!allowedTypes.has(mimeType)) throw new HttpError(415, 'Formato no permitido. Usa JPG, PNG, WEBP, PDF, DOC o DOCX.');
+    const content = await readBinaryBody(req, ATTACHMENT_LIMIT);
+    const createdAt = nowIso();
+    const id = Number(db.prepare(`INSERT INTO clinical_attachments
+      (patient_id, filename, mime_type, size_bytes, content, uploaded_by, uploaded_by_name, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(patientId, filename, mimeType, content.length, content, auth.user.id, auth.user.displayName, createdAt).lastInsertRowid);
+    writeAudit(db, auth.user.id, 'attachment_create', 'clinical_attachment', id, { patientId, filename, sizeBytes: content.length });
+    return sendJson(res, 201, { id, patientId, filename, mimeType, sizeBytes: content.length, uploadedByName: auth.user.displayName, createdAt });
+  }
+
+  const attachmentMatch = pathname.match(/^\/api\/adjuntos\/(\d+)$/);
+  if (attachmentMatch && method === 'GET') {
+    const attachmentId = positiveId(attachmentMatch[1], 'ID de adjunto');
+    const item = db.prepare('SELECT filename, mime_type, size_bytes, content FROM clinical_attachments WHERE id = ?').get(attachmentId);
+    if (!item) throw new HttpError(404, 'Archivo adjunto no encontrado.');
+    res.statusCode = 200;
+    res.setHeader('Content-Type', item.mime_type);
+    res.setHeader('Content-Length', String(item.size_bytes));
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(item.filename)}`);
+    return res.end(item.content);
+  }
+  if (attachmentMatch && method === 'DELETE') {
+    requireRole(auth, CLINICAL_WRITERS);
+    const attachmentId = positiveId(attachmentMatch[1], 'ID de adjunto');
+    const item = db.prepare('SELECT patient_id, filename FROM clinical_attachments WHERE id = ?').get(attachmentId);
+    if (!item) throw new HttpError(404, 'Archivo adjunto no encontrado.');
+    db.prepare('DELETE FROM clinical_attachments WHERE id = ?').run(attachmentId);
+    writeAudit(db, auth.user.id, 'attachment_delete', 'clinical_attachment', attachmentId, { patientId: Number(item.patient_id), filename: item.filename });
+    return sendJson(res, 200, { success: true });
   }
 
   const patientConsultationsMatch = pathname.match(/^\/api\/pacientes\/(\d+)\/consultas$/);

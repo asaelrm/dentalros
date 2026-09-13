@@ -122,6 +122,10 @@ class LocalOdontoDB extends OdontoDB {
     });
   }
   saveHistoria(value) { return this.saveRelated('historias', value.pacienteId, value); }
+  getAdjuntos() { return Promise.resolve([]); }
+  uploadAdjunto() { return Promise.reject(new Error('Los adjuntos clínicos están disponibles al ejecutar el sistema con Docker.')); }
+  deleteAdjunto() { return Promise.reject(new Error('Los adjuntos clínicos están disponibles al ejecutar el sistema con Docker.')); }
+  getAdjuntoUrl() { return '#'; }
   saveOdontograma(id, piezas, notasGenerales = '') { return this.saveRelated('odontogramas', id, { piezas: piezas || {}, notasGenerales }); }
   getConsultas(id) { return this.access(false, data => data.consultas.filter(item => item.pacienteId === Number(id)).sort((a, b) => String(b.fecha || '').localeCompare(String(a.fecha || '')) || b.id - a.id)); }
   saveConsulta(value) {

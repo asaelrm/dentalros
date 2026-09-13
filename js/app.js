@@ -8,6 +8,7 @@ class OdontoApp {
     this.currentPacienteId = null;
     this.currentPaciente = null;
     this.currentHistoria = null;
+    this.currentAttachments = [];
     this.currentConsultas = [];
     this.currentOdontograma = null;
     this.insurers = [];
@@ -100,6 +101,8 @@ class OdontoApp {
       });
       historiaForm.classList.toggle('read-only-form', !canEdit);
     }
+    const attachmentLabel = document.getElementById('label-upload-attachment');
+    if (attachmentLabel) attachmentLabel.hidden = !canEdit;
 
     const saveStatus = document.getElementById('odontograma-save-status');
     if (saveStatus) saveStatus.textContent = canEdit ? 'Guardado automático' : 'Modo solo lectura';
@@ -239,6 +242,7 @@ class OdontoApp {
     };
 
     this.currentConsultas = await window.odontoDB.getConsultas(id);
+    this.currentAttachments = await window.odontoDB.getAdjuntos(id);
     this.currentOdontograma = await window.odontoDB.getOdontograma(id) || {
       pacienteId: id,
       piezas: {},
@@ -248,6 +252,7 @@ class OdontoApp {
     // Actualizar elementos visuales
     this.renderPacienteHeader();
     this.renderHistoriaClinicaForm();
+    this.renderClinicalAttachments();
     this.renderConsultasTimeline();
     this.renderFacturas();
     
@@ -338,6 +343,36 @@ class OdontoApp {
     f.habitos.value = h.habitos || '';
     f.diagnosticoGeneral.value = h.diagnosticoGeneral || '';
     f.planTratamiento.value = h.planTratamiento || '';
+  }
+
+  renderClinicalAttachments() {
+    const list = document.getElementById('clinical-attachments-list');
+    if (!list) return;
+    const escape = window.escapeHTML;
+    if (!this.currentAttachments.length) {
+      list.innerHTML = '<div class="sm:col-span-2 lg:col-span-3 p-5 rounded-2xl border border-dashed border-rose-200 text-center text-xs text-slate-500">No hay documentos ni imágenes adjuntas.</div>';
+      return;
+    }
+    list.innerHTML = this.currentAttachments.map(item => {
+      const isImage = item.mimeType.startsWith('image/');
+      const url = window.odontoDB.getAdjuntoUrl(item.id);
+      const size = item.sizeBytes < 1048576 ? `${Math.ceil(item.sizeBytes / 1024)} KB` : `${(item.sizeBytes / 1048576).toFixed(1)} MB`;
+      return `<article class="overflow-hidden rounded-2xl border border-rose-200 bg-white shadow-sm">
+        ${isImage ? `<a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="${escape(item.filename)}" class="w-full h-36 object-cover bg-slate-100"></a>` : `<a href="${url}" target="_blank" rel="noopener" class="h-36 flex items-center justify-center bg-rose-50 text-5xl">📄</a>`}
+        <div class="p-3"><p class="font-black text-sm text-rose-950 truncate" title="${escape(item.filename)}">${escape(item.filename)}</p>
+        <p class="text-[11px] text-slate-500 mt-1">${size} · ${escape(item.uploadedByName)}</p>
+        <div class="flex gap-2 mt-3"><a href="${url}" target="_blank" rel="noopener" class="secondary-button flex-1 text-center">Abrir</a>${this.canEdit() ? `<button type="button" class="btn-delete-attachment secondary-button text-rose-700" data-id="${Number(item.id)}">Eliminar</button>` : ''}</div></div>
+      </article>`;
+    }).join('');
+    list.querySelectorAll('.btn-delete-attachment').forEach(button => button.addEventListener('click', async () => {
+      if (!confirm('¿Deseas eliminar este archivo del expediente clínico?')) return;
+      try {
+        await window.odontoDB.deleteAdjunto(button.dataset.id);
+        this.currentAttachments = await window.odontoDB.getAdjuntos(this.currentPacienteId);
+        this.renderClinicalAttachments();
+        this.showToast('Archivo eliminado del expediente.');
+      } catch (error) { this.showToast(error.message, 'error'); }
+    }));
   }
 
   renderConsultasTimeline() {
@@ -645,6 +680,24 @@ class OdontoApp {
         }
       });
     }
+
+    const attachmentInput = document.getElementById('input-clinical-attachment');
+    if (attachmentInput) attachmentInput.addEventListener('change', async () => {
+      const file = attachmentInput.files?.[0];
+      if (!file || !this.currentPacienteId) return;
+      const status = document.getElementById('attachment-status');
+      try {
+        if (status) status.textContent = `Subiendo ${file.name}...`;
+        await window.odontoDB.uploadAdjunto(this.currentPacienteId, file);
+        this.currentAttachments = await window.odontoDB.getAdjuntos(this.currentPacienteId);
+        this.renderClinicalAttachments();
+        if (status) status.textContent = '';
+        this.showToast('Archivo adjuntado a la historia clínica.');
+      } catch (error) {
+        if (status) status.textContent = error.message;
+        this.showToast(error.message, 'error');
+      } finally { attachmentInput.value = ''; }
+    });
 
     // 7. Botón Nueva Consulta (Abre Modal)
     const btnNuevaConsulta = document.getElementById('btn-nueva-consulta');

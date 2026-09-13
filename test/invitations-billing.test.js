@@ -22,7 +22,7 @@ async function fixture(t) {
   const invite = (role, username = role) => request('/api/users', 'POST', { username, displayName: username, role, email: `${username}@example.test` }, admin);
   const activate = password => request('/api/auth/accept-invitation', 'POST', { token: token(), password: password || 'PrivadaPersonal123!' });
   const login = (username, password = 'PrivadaPersonal123!') => request('/api/auth/login', 'POST', { username, password });
-  return { server, request, admin, mails, token, invite, activate, login, fail: value => { failMail = value; } };
+  return { server, url, request, admin, mails, token, invite, activate, login, fail: value => { failMail = value; } };
 }
 
 test('Invitaciones: privacidad, expiración, uso único, reenvío y errores SMTP', async t => {
@@ -98,6 +98,16 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del cat�
   const patient = await f.request('/api/pacientes', 'POST', { nombre: 'Paciente', apellido: 'Prueba' }, sessions.secretaria);
   assert.equal(patient.status, 201);
   const patientId = patient.data.id;
+  const upload = await fetch(`${f.url}/api/pacientes/${patientId}/adjuntos`, { method: 'POST', headers: { Cookie: sessions.doctor, 'Content-Type': 'image/png', 'X-File-Name': encodeURIComponent('panorámica inicial.png') }, body: Buffer.from([137, 80, 78, 71]) });
+  assert.equal(upload.status, 201);
+  const attachment = await upload.json();
+  assert.equal(attachment.filename, 'panorámica inicial.png');
+  assert.equal((await f.request(`/api/pacientes/${patientId}/adjuntos`, 'GET', undefined, sessions.secretaria)).data.length, 1);
+  const downloaded = await fetch(`${f.url}/api/adjuntos/${attachment.id}`, { headers: { Cookie: sessions.secretaria } });
+  assert.equal(downloaded.status, 200);
+  assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), Buffer.from([137, 80, 78, 71]));
+  assert.equal((await f.request(`/api/adjuntos/${attachment.id}`, 'DELETE', undefined, sessions.secretaria)).status, 403);
+  assert.equal((await f.request(`/api/adjuntos/${attachment.id}`, 'DELETE', undefined, sessions.doctor)).status, 200);
   assert.equal((await f.request(`/api/pacientes/${patientId}/historia`, 'PUT', { diagnosticoGeneral: 'No permitido' }, sessions.secretaria)).status, 403);
   const insurers = await f.request('/api/insurers', 'GET', undefined, sessions.secretaria);
   assert.equal(insurers.status, 200);

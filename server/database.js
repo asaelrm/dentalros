@@ -134,6 +134,18 @@ function openDatabase(filename) {
       ) STRICT;
       CREATE INDEX IF NOT EXISTS idx_cash_payments_paid_at ON cash_payments(paid_at);
       CREATE INDEX IF NOT EXISTS idx_cash_payments_patient ON cash_payments(patient_id);
+      CREATE TABLE IF NOT EXISTS clinical_attachments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        patient_id INTEGER NOT NULL REFERENCES pacientes(id) ON DELETE CASCADE,
+        filename TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size_bytes INTEGER NOT NULL CHECK (size_bytes > 0),
+        content BLOB NOT NULL,
+        uploaded_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+        uploaded_by_name TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS idx_clinical_attachments_patient ON clinical_attachments(patient_id, created_at);
     `);
     const insurers = [
       ['SeNaSa','SENASA'],['Primera ARS','PRIMERA'],['MAPFRE Salud ARS','MAPFRE'],['ARS Universal','UNIVERSAL'],

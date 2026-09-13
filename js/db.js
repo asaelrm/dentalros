@@ -103,6 +103,29 @@ class OdontoDB {
     return true;
   }
 
+  async getAdjuntos(pacienteId) {
+    return this.api.request(`/api/pacientes/${Number(pacienteId)}/adjuntos`);
+  }
+
+  async uploadAdjunto(pacienteId, file) {
+    const extensionTypes = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', pdf: 'application/pdf', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
+    const extension = file.name.split('.').pop().toLowerCase();
+    const response = await fetch(`/api/pacientes/${Number(pacienteId)}/adjuntos`, {
+      method: 'POST', credentials: 'same-origin',
+      headers: { 'Content-Type': file.type || extensionTypes[extension] || 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name) },
+      body: file
+    });
+    const payload = await response.json();
+    if (!response.ok) throw new ApiError(response.status, payload?.error || 'No se pudo adjuntar el archivo.');
+    return payload;
+  }
+
+  async deleteAdjunto(id) {
+    return this.api.request(`/api/adjuntos/${Number(id)}`, { method: 'DELETE' });
+  }
+
+  getAdjuntoUrl(id) { return `/api/adjuntos/${Number(id)}`; }
+
   async getConsultas(pacienteId) {
     return this.api.request(`/api/pacientes/${Number(pacienteId)}/consultas`);
   }
