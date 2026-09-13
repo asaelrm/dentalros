@@ -1,0 +1,17 @@
+.git
+.github
+.agents
+.codex
+node_modules
+.npm-cache
+_site
+data
+.env
+.env.*
+*.sqlite*
+*.log
+test
+README.md
+AGENTS.md
+GEMINI.md
+*.bat

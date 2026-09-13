@@ -16,3 +16,8 @@ data/odontologia.sqlite-wal
 node_modules/
 .npm-cache/
 _site/
+
+# Variables locales (la plantilla sí se versiona)
+.env
+.env.*
+!.env.example

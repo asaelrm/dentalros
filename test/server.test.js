@@ -19,6 +19,7 @@ test('API odontologica: integracion completa', async (t) => {
   const databasePath = path.join(temporaryDirectory, 'test.sqlite');
   const server = createServer({
     dbPath: databasePath,
+    cookieSecure: false,
     staticRoot: path.resolve(__dirname, '..'),
     logger: { error() {} }
   });
@@ -561,5 +562,26 @@ test('API odontologica: integracion completa', async (t) => {
   } finally {
     await new Promise((resolve) => server.close(resolve));
     fs.rmSync(temporaryDirectory, { recursive: true, force: true });
+  }
+});
+
+test('El despliegue HTTPS entrega cookies Secure', async () => {
+  const server = createServer({ dbPath: ':memory:', cookieSecure: true });
+  await new Promise((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', resolve);
+  });
+  try {
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/setup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: 'admin.prueba', displayName: 'Prueba HTTPS', password: 'SoloParaPruebas123!' })
+    });
+    assert.equal(response.status, 201);
+    assert.match(response.headers.get('set-cookie'), /; Secure/i);
+    assert.match(response.headers.get('set-cookie'), /; HttpOnly/i);
+    await response.json();
+  } finally {
+    await new Promise(resolve => server.close(resolve));
   }
 });

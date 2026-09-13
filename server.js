@@ -1137,7 +1137,7 @@ async function serveStatic(req, res, pathname, staticRoot) {
 }
 
 function createServer(options = {}) {
-  const dbPath = options.dbPath || path.join(ROOT_DIR, 'data', 'odontologia.sqlite');
+  const dbPath = options.dbPath || process.env.DB_PATH || path.join(ROOT_DIR, 'data', 'odontologia.sqlite');
   const staticRoot = fs.realpathSync(options.staticRoot || ROOT_DIR);
   const bodyLimit = options.bodyLimit ?? DEFAULT_BODY_LIMIT;
   const sessionMaxAge = options.sessionMaxAge ?? DEFAULT_SESSION_MAX_AGE;

@@ -125,3 +125,66 @@ Exporta respaldos periódicamente y antes de borrar datos del navegador, cambiar
 En GitHub, selecciona **Settings > Pages > Source > GitHub Actions**. El workflow `pages.yml` ejecuta las pruebas y publica únicamente HTML, CSS, JavaScript e imágenes. Cada push a `main` actualiza el sitio. Con un dominio personalizado, el archivo publicado también activa explícitamente el modo local.
 
 Al ejecutar `npm start`, la aplicación sigue usando el servidor y su autenticación. Un error del servidor no cambia automáticamente al almacenamiento local.
+
+## Docker Desktop en Windows y acceso temporal por Internet
+
+### Arquitectura
+
+Node.js 24 sirve la API con `node:http` (sin Express) y el frontend HTML/CSS/JavaScript desde el mismo proceso. SQLite está integrado en Node.js: no se necesita un contenedor MySQL o PostgreSQL. En Docker y Cloudflare se utiliza la autenticación del servidor y la base compartida, no el modo local de GitHub Pages.
+
+### Arranque
+
+1. Abre Docker Desktop con el motor de **contenedores Linux**.
+2. Abre PowerShell en la carpeta del repositorio.
+3. Opcionalmente, copia la plantilla con `Copy-Item .env.example .env` si aún no tienes `.env`. Compose funciona también sin ese archivo gracias a sus valores predeterminados.
+4. Ejecuta:
+
+```powershell
+docker compose up -d
+```
+
+Abre **http://localhost:3000**. No es necesario instalar Node.js en Windows. En el primer arranque, crea el administrador **antes de abrir el túnel** y crea una cuenta de solo lectura si la otra persona solo necesita consultar.
+
+Para verificar el estado y los logs:
+
+```powershell
+docker compose ps
+docker compose logs --tail=100 app
+```
+
+El estado debe pasar a `healthy`. Para reconstruir después de actualizar el código:
+
+```powershell
+docker compose build
+docker compose up -d
+```
+
+### Variables y datos
+
+Compose lee `.env` para configurar `PORT` (predeterminado `3000`) y `COOKIE_SECURE` (predeterminado `true`). Si cambias el puerto, vuelve a ejecutar `docker compose up -d` y utiliza ese puerto también en el navegador y el túnel. Las cookies seguras funcionan con HTTPS y con `localhost` en navegadores actuales; utiliza la URL local indicada. Mantén `COOKIE_SECURE=true` para compartir por Cloudflare.
+
+`HOST=0.0.0.0` permite recibir conexiones dentro del contenedor; el puerto de Windows se publica solo en `127.0.0.1`. `DB_PATH=/app/data/odontologia.sqlite` apunta al volumen Docker `dentalros_data` (Compose añade el prefijo del proyecto). No hay contraseñas predeterminadas ni credenciales que configurar en `.env`.
+
+El volumen comienza con una base nueva y conserva usuarios y expedientes al reiniciar o reconstruir el contenedor. La carpeta `data/` del repositorio queda intacta y no se copia a la imagen. Para pasar expedientes existentes, exporta un respaldo JSON desde la instalación anterior e impórtalo con **Restaurar** en Docker; las cuentas se crean por separado. Exporta respaldos desde la aplicación antes de moverla a otro equipo.
+
+Para detener el sistema conservando el volumen:
+
+```powershell
+docker compose down
+```
+
+No agregues `-v`: esa opción elimina el volumen y su base de datos.
+
+### Cloudflare Tunnel temporal
+
+Con `cloudflared` instalado en Windows y la aplicación funcionando, abre otra terminal PowerShell y ejecuta:
+
+```powershell
+cloudflared tunnel --url http://localhost:3000
+```
+
+La terminal mostrará una URL aleatoria `https://…trycloudflare.com`. Compártela con la otra persona, que deberá iniciar sesión con la cuenta que hayas creado. Mantén Docker Desktop y esa terminal abiertos. `Ctrl+C` detiene el túnel; un nuevo arranque puede generar otra URL. No necesitas abrir puertos del router ni configurar un dominio.
+
+Los Quick Tunnels son temporales para pruebas, sin garantía de disponibilidad. Si `cloudflared` detecta una configuración existente en `.cloudflared`, consulta las limitaciones de Quick Tunnels antes de modificarla.
+
+Documentación: [Quick Tunnels de Cloudflare](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/trycloudflare/).

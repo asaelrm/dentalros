@@ -1,0 +1,30 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    init: true
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: "${PORT:-3000}"
+      DB_PATH: /app/data/odontologia.sqlite
+      COOKIE_SECURE: "${COOKIE_SECURE:-true}"
+    ports:
+      - "127.0.0.1:${PORT:-3000}:${PORT:-3000}"
+    volumes:
+      - dentalros_data:/app/data
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:' + process.env.PORT + '/api/setup-status', {signal: AbortSignal.timeout(3000)}).then(async r => { if (!r.ok || typeof (await r.json()).needsSetup !== 'boolean') process.exit(1); }).catch(() => process.exit(1))"
+      interval: 10s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  dentalros_data:
