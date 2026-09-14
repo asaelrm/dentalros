@@ -190,6 +190,14 @@ function openDatabase(filename) {
         notes TEXT NOT NULL DEFAULT '', created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       ) STRICT;
       CREATE INDEX IF NOT EXISTS idx_appointments_starts ON appointments(starts_at);
+      CREATE TABLE IF NOT EXISTS estimates (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, patient_id INTEGER NOT NULL REFERENCES pacientes(id) ON DELETE CASCADE,
+        diagnosis TEXT NOT NULL DEFAULT '', lines_json TEXT NOT NULL, total_centavos INTEGER NOT NULL CHECK(total_centavos >= 0),
+        status TEXT NOT NULL DEFAULT 'borrador' CHECK(status IN ('borrador','aprobado','vencido','convertido')),
+        valid_until TEXT NOT NULL DEFAULT '', created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, created_by_name TEXT NOT NULL,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, converted_consultation_id INTEGER UNIQUE REFERENCES consultas(id) ON DELETE RESTRICT
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS idx_estimates_patient ON estimates(patient_id, created_at);
       CREATE TABLE IF NOT EXISTS catalog_prices (
         catalog_id INTEGER NOT NULL REFERENCES catalogo(id) ON DELETE CASCADE,
         insurance_id INTEGER NOT NULL REFERENCES insurers(id) ON DELETE CASCADE,

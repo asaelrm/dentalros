@@ -80,6 +80,9 @@ class OdontoDB {
   async auditVoucherReprint(id) { return this.api.request(`/api/cash/payments/${Number(id)}/reprint`, { method: 'POST', body: {} }); }
   async voidCashPayment(id) { return this.api.request(`/api/cash/payments/${Number(id)}/void`, { method: 'POST', body: {} }); }
   async chargeInvoice(consultationId, payment) { return this.api.request(`/api/consultas/${Number(consultationId)}/charge`, { method: 'POST', body: payment }); }
+  async getPresupuestos(patientId) { return this.api.request(`/api/pacientes/${Number(patientId)}/presupuestos`); }
+  async savePresupuesto(patientId, data) { return this.api.request(`/api/pacientes/${Number(patientId)}/presupuestos`, { method: 'POST', body: data }); }
+  async convertPresupuesto(id) { return this.api.request(`/api/presupuestos/${Number(id)}/convertir`, { method: 'POST', body: {} }); }
 
   async getPacientes() {
     return this.api.request('/api/pacientes');

@@ -721,10 +721,11 @@ function isKnownProtectedPath(pathname) {
     pathname === '/api/catalogo' || /^\/api\/catalogo\/\d+$/.test(pathname) || pathname === '/api/tarifarios' ||
     /^\/api\/users\/\d+(?:\/reset-password)?$/.test(pathname) ||
     pathname === '/api/pacientes' ||
-    /^\/api\/pacientes\/\d+(?:\/(?:historia|consultas|odontograma|adjuntos|firmas))?$/.test(pathname) ||
+    /^\/api\/pacientes\/\d+(?:\/(?:historia|consultas|odontograma|adjuntos|firmas|presupuestos))?$/.test(pathname) ||
     /^\/api\/(?:adjuntos|firmas)\/\d+$/.test(pathname) ||
     /^\/api\/consultas\/\d+$/.test(pathname) ||
     /^\/api\/consultas\/\d+\/factura(?:\/(?:cerrar|reabrir|anular))?$/.test(pathname) ||
+    /^\/api\/presupuestos\/\d+\/convertir$/.test(pathname) ||
     pathname === '/api/config' ||
     pathname === '/api/backup' ||
     pathname === '/api/backup/import';
@@ -1522,6 +1523,18 @@ async function handleApi(req, res, pathname, context) {
   }
 
   const patientConsultationsMatch = pathname.match(/^\/api\/pacientes\/(\d+)\/consultas$/);
+  const patientEstimatesMatch = pathname.match(/^\/api\/pacientes\/(\d+)\/presupuestos$/);
+  if (patientEstimatesMatch && method === 'GET') {
+    requirePermission(auth, 'clinical.read'); const patientId = positiveId(patientEstimatesMatch[1], 'ID de paciente'); ensurePatient(db, patientId);
+    return sendJson(res, 200, db.prepare('SELECT * FROM estimates WHERE patient_id=? ORDER BY id DESC').all(patientId).map(item => ({ id:Number(item.id), patientId:Number(item.patient_id), diagnosis:item.diagnosis, lines:parseData(item.lines_json), total:Number(item.total_centavos)/100, status:item.status, validUntil:item.valid_until, createdByName:item.created_by_name, createdAt:item.created_at, updatedAt:item.updated_at })));
+  }
+  if (patientEstimatesMatch && method === 'POST') {
+    requirePermission(auth, 'invoice.write'); const patientId = positiveId(patientEstimatesMatch[1], 'ID de paciente'); ensurePatient(db, patientId); const body = requireObject(await readJsonBody(req, bodyLimit)); const invoice = invoiceFromInput(db, auth, body, null, patientId); const status = String(body.status || 'borrador'); if (!['borrador','aprobado'].includes(status)) throw new HttpError(400, 'Estado de presupuesto no válido.'); const validUntil=String(body.validUntil || ''); if(validUntil&&!/^\d{4}-\d{2}-\d{2}$/.test(validUntil)) throw new HttpError(400,'La vigencia no es válida.'); const timestamp=nowIso(); const id=Number(db.prepare('INSERT INTO estimates(patient_id,diagnosis,lines_json,total_centavos,status,valid_until,created_by,created_by_name,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(patientId,invoice.diagnostico,JSON.stringify(invoice.procedimientos),Math.round(invoice.total*100),status,validUntil,auth.user.id,auth.user.displayName,timestamp,timestamp).lastInsertRowid); writeAudit(db,auth.user.id,'estimate_create','estimate',id,{patientId,total:invoice.total}); return sendJson(res,201,{id,patientId,diagnosis:invoice.diagnostico,lines:invoice.procedimientos,total:invoice.total,status,validUntil,createdByName:auth.user.displayName,createdAt:timestamp,updatedAt:timestamp});
+  }
+  const estimateConvertMatch = pathname.match(/^\/api\/presupuestos\/(\d+)\/convertir$/);
+  if (estimateConvertMatch && method === 'POST') {
+    requirePermission(auth, 'invoice.write'); const id=positiveId(estimateConvertMatch[1],'ID de presupuesto'); const estimate=db.prepare('SELECT * FROM estimates WHERE id=?').get(id); if(!estimate) throw new HttpError(404,'Presupuesto no encontrado.'); if(estimate.status==='convertido') throw new HttpError(409,'Este presupuesto ya fue convertido.'); const patient=db.prepare('SELECT insurance_id FROM pacientes WHERE id=?').get(estimate.patient_id); const insurer=db.prepare('SELECT nombre FROM insurers WHERE id=?').get(patient.insurance_id) || db.prepare("SELECT nombre FROM insurers WHERE codigo='PRIVADO'").get(); const lines=parseData(estimate.lines_json); const insurance=lines.reduce((sum,line)=>sum+Number(line.insuranceCoveredCentavos||0),0); const timestamp=nowIso(); const invoice={diagnostico:estimate.diagnosis,procedimientos:lines,total:Number(estimate.total_centavos)/100,insuranceCovered:insurance/100,patientResponsibility:(Number(estimate.total_centavos)-insurance)/100,estado:'abierta',creadaEn:timestamp,actualizadaEn:timestamp,cerradaEn:null,tariffInsuranceId:patient.insurance_id||null,tariffName:insurer.nombre,estimateId:id}; const consultation={fecha:timestamp.slice(0,10),motivo:'Presupuesto aprobado',diagnostico:estimate.diagnosis,factura:invoice}; let consultationId; runTransaction(db,()=>{consultationId=Number(db.prepare('INSERT INTO consultas(paciente_id,data) VALUES(?,?)').run(estimate.patient_id,JSON.stringify(consultation)).lastInsertRowid); db.prepare("UPDATE estimates SET status='convertido',converted_consultation_id=?,updated_at=? WHERE id=?").run(consultationId,timestamp,id); writeAudit(db,auth.user.id,'estimate_convert','estimate',id,{consultationId});}); return sendJson(res,201,{...consultation,id:consultationId,pacienteId:Number(estimate.patient_id)});
+  }
   if (patientConsultationsMatch && method === 'GET') {
     const patientId = positiveId(patientConsultationsMatch[1], 'ID de paciente');
     ensurePatient(db, patientId);

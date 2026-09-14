@@ -248,6 +248,7 @@ class OdontoApp {
     };
 
     this.currentConsultas = await window.odontoDB.getConsultas(id);
+    this.currentPresupuestos = await window.odontoDB.getPresupuestos(id);
     this.currentAttachments = await window.odontoDB.getAdjuntos(id);
     this.currentSignatures = await window.odontoDB.getFirmas(id);
     this.currentOdontograma = await window.odontoDB.getOdontograma(id) || {
@@ -515,6 +516,12 @@ class OdontoApp {
     list.querySelectorAll('.btn-tab-factura').forEach(button => {
       button.addEventListener('click', () => this.openFacturaModal(Number(button.dataset.id)));
     });
+    const estimates = document.getElementById('presupuestos-list');
+    if (estimates) {
+      const escape = window.escapeHTML;
+      estimates.innerHTML = (this.currentPresupuestos || []).map(item => `<article class="glass-card p-4 rounded-2xl border border-violet-200 bg-violet-50/40 flex flex-wrap justify-between gap-3"><div><b class="text-violet-950">Presupuesto #${item.id} · ${escape(item.status)}</b><p class="text-xs mt-1">${escape(item.diagnosis)} · Vigencia: ${escape(item.validUntil || 'Sin fecha')}</p><small>${item.lines.length} procedimiento(s) · $${Number(item.total).toFixed(2)}</small></div>${item.status !== 'convertido' && window.authManager.hasPermission('invoice.write') ? `<button class="btn-convert-estimate btn-primary px-3 py-2 rounded-xl" data-id="${item.id}">Convertir a factura</button>` : ''}</article>`).join('') || '<div class="text-xs p-3 text-slate-500">No hay presupuestos guardados para este paciente.</div>';
+      estimates.querySelectorAll('.btn-convert-estimate').forEach(button => button.addEventListener('click', async () => { if (!confirm('¿Convertir este presupuesto en una nueva factura abierta?')) return; try { await window.odontoDB.convertPresupuesto(button.dataset.id); this.currentConsultas = await window.odontoDB.getConsultas(this.currentPacienteId); this.currentPresupuestos = await window.odontoDB.getPresupuestos(this.currentPacienteId); this.renderConsultasTimeline(); this.renderFacturas(); this.showToast('Presupuesto convertido en factura abierta.'); } catch (error) { this.showToast(error.message, 'error'); } }));
+    }
   }
 
   // --- NAVEGACIÓN ENTRE PESTAÑAS (HISTORIA, ODONTOGRAMA, CONSULTAS) ---
@@ -852,6 +859,7 @@ class OdontoApp {
     document.getElementById('btn-cash')?.addEventListener('click', () => this.openCash());
     document.getElementById('btn-agenda')?.addEventListener('click',()=>this.openAgenda());
     document.getElementById('btn-dashboard')?.addEventListener('click',()=>this.openDashboard());
+    document.getElementById('btn-create-estimate')?.addEventListener('click',()=>this.createEstimateFromInvoice());
     document.getElementById('btn-close-dashboard')?.addEventListener('click',()=>this.closeModal('modal-dashboard'));
     document.getElementById('btn-close-agenda')?.addEventListener('click',()=>this.closeModal('modal-agenda'));
     document.getElementById('btn-filter-agenda')?.addEventListener('click',()=>this.loadAgenda());
@@ -1045,6 +1053,16 @@ class OdontoApp {
       f[field].closest('div').hidden = !this.canEdit();
     }
     this.openModal('modal-consulta');
+  }
+
+  async createEstimateFromInvoice() {
+    const candidates = (this.currentConsultas || []).filter(item => item.factura?.estado === 'abierta' && item.factura.procedimientos?.length);
+    if (!candidates.length) return this.showToast('Primero crea y guarda una factura abierta con procedimientos.', 'error');
+    const selected = candidates.length === 1 ? candidates[0] : candidates.find(item => String(item.id) === prompt(`Indica la consulta para el presupuesto: ${candidates.map(item => item.id).join(', ')}`));
+    if (!selected) return;
+    const validUntil = prompt('Vigencia del presupuesto (AAAA-MM-DD, opcional):') || '';
+    const status = confirm('¿Marcar el presupuesto como aprobado?') ? 'aprobado' : 'borrador';
+    try { await window.odontoDB.savePresupuesto(this.currentPacienteId, { diagnostico:selected.factura.diagnostico, tariffInsuranceId:selected.factura.tariffInsuranceId, procedimientos:selected.factura.procedimientos.map(line => ({ procedimientoId:line.procedimientoId, diagnosticoId:line.diagnosticoId, cantidad:line.cantidad, coveragePercent:line.coveragePercent, authorizationNumber:line.authorizationNumber })), validUntil, status }); this.currentPresupuestos = await window.odontoDB.getPresupuestos(this.currentPacienteId); this.renderFacturas(); this.showToast('Presupuesto guardado.'); } catch (error) { this.showToast(error.message, 'error'); }
   }
 
   async openFacturaModal(consultaId) {

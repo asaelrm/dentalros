@@ -549,9 +549,11 @@
         <!-- PESTAÑA 4: FACTURACIÓN -->
         <div id="tab-pane-facturas" class="tab-content hidden flex flex-col gap-4">
           <div class="glass-panel p-4 sm:p-5 rounded-3xl">
-            <h3 class="text-sm font-black text-rose-950">Facturación del paciente</h3>
+            <div class="flex justify-between gap-3"><div><h3 class="text-sm font-black text-rose-950">Facturación del paciente</h3>
             <p class="text-xs text-slate-500 mt-1">Las facturas se crean a partir de las consultas. Aquí puedes ver borradores, cerrar facturas y consultar las cerradas.</p>
+            </div><button id="btn-create-estimate" class="secondary-button" type="button">Crear presupuesto desde factura</button></div>
           </div>
+          <div id="presupuestos-list" class="flex flex-col gap-3"></div>
           <div id="facturas-list" class="flex flex-col gap-3"></div>
         </div>
 
