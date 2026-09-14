@@ -714,7 +714,7 @@ function isKnownProtectedPath(pathname) {
     pathname === '/api/auth/logout' ||
     pathname === '/api/auth/change-password' ||
     pathname === '/api/users' ||
-    pathname === '/api/insurers' || pathname === '/api/backups' ||
+    pathname === '/api/insurers' || pathname === '/api/backups' || pathname === '/api/appointments' || /^\/api\/appointments\/\d+$/.test(pathname) ||
     pathname === '/api/cash' || /^\/api\/cash\/(?:session|session\/close|payments\/\d+\/(?:void|reprint))$/.test(pathname) ||
     /^\/api\/consultas\/\d+\/charge$/.test(pathname) ||
     pathname === '/api/catalogo' || /^\/api\/catalogo\/\d+$/.test(pathname) || pathname === '/api/tarifarios' ||
@@ -1059,6 +1059,20 @@ async function handleApi(req, res, pathname, context) {
     const id = Number(db.prepare('INSERT INTO insurers (nombre, codigo) VALUES (?, ?)').run(nombre, codigo).lastInsertRowid);
     writeAudit(db, auth.user.id, 'insurer_create', 'insurer', id, { nombre });
     return sendJson(res, 201, { id, nombre, codigo });
+  }
+
+  if (pathname === '/api/appointments' && method === 'GET') {
+    requirePermission(auth,'clinical.read'); const url=new URL(req.url,'http://localhost'); const from=url.searchParams.get('from')||nowIso().slice(0,10); const to=url.searchParams.get('to')||from; if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||from>to) throw new HttpError(400,'Rango de agenda inválido.');
+    const rows=db.prepare(`SELECT a.*,json_extract(p.data,'$.nombre') nombre,json_extract(p.data,'$.apellido') apellido FROM appointments a JOIN pacientes p ON p.id=a.patient_id WHERE substr(a.starts_at,1,10) BETWEEN ? AND ? ORDER BY a.starts_at`).all(from,to);
+    return sendJson(res,200,rows.map(row=>({id:Number(row.id),patientId:Number(row.patient_id),patientName:`${row.nombre||''} ${row.apellido||''}`.trim(),professionalName:row.professional_name,startsAt:row.starts_at,endsAt:row.ends_at,status:row.status,notes:row.notes})));
+  }
+  const appointmentMatch=pathname.match(/^\/api\/appointments\/(\d+)$/);
+  if ((pathname==='/api/appointments'&&method==='POST')||(appointmentMatch&&method==='PUT')) {
+    requirePermission(auth,'consultations.write'); const body=requireObject(await readJsonBody(req,bodyLimit)); const id=appointmentMatch?positiveId(appointmentMatch[1],'ID de cita'):null; if(id&&!db.prepare('SELECT 1 FROM appointments WHERE id=?').get(id)) throw new HttpError(404,'Cita no encontrada.');
+    const patientId=positiveId(body.patientId,'Paciente'); ensurePatient(db,patientId); const professionalName=String(body.professionalName||'').trim(); if(professionalName.length<2||professionalName.length>150) throw new HttpError(400,'Indica el profesional de la cita.'); const startsAt=String(body.startsAt||''); const endsAt=String(body.endsAt||''); if(!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(startsAt)||!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(endsAt)||startsAt>=endsAt) throw new HttpError(400,'La fecha y hora de la cita no son válidas.'); const status=String(body.status||'pendiente'); if(!['pendiente','confirmada','atendida','cancelada','ausente'].includes(status)) throw new HttpError(400,'Estado de cita inválido.'); const notes=String(body.notes||'').trim().slice(0,500);
+    if(!['cancelada','ausente'].includes(status)&&db.prepare("SELECT 1 FROM appointments WHERE professional_name=? COLLATE NOCASE AND status NOT IN ('cancelada','ausente') AND starts_at<? AND ends_at>? AND id<>?").get(professionalName,endsAt,startsAt,id||0)) throw new HttpError(409,'El profesional ya tiene una cita en ese horario.'); const timestamp=nowIso();
+    let appointmentId=id; runTransaction(db,()=>{if(id)db.prepare('UPDATE appointments SET patient_id=?,professional_name=?,starts_at=?,ends_at=?,status=?,notes=?,updated_at=? WHERE id=?').run(patientId,professionalName,startsAt,endsAt,status,notes,timestamp,id);else appointmentId=Number(db.prepare('INSERT INTO appointments(patient_id,professional_name,starts_at,ends_at,status,notes,created_by,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?)').run(patientId,professionalName,startsAt,endsAt,status,notes,auth.user.id,timestamp,timestamp).lastInsertRowid);writeAudit(db,auth.user.id,id?'appointment_update':'appointment_create','appointment',appointmentId,{patientId,startsAt,status});});
+    return sendJson(res,id?200:201,{id:appointmentId,patientId,professionalName,startsAt,endsAt,status,notes});
   }
 
   if (pathname === '/api/cash' && method === 'GET') {

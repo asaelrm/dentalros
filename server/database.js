@@ -182,6 +182,13 @@ function openDatabase(filename) {
         image BLOB NOT NULL, created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, created_by_name TEXT NOT NULL, created_at TEXT NOT NULL
       ) STRICT;
       CREATE INDEX IF NOT EXISTS idx_clinical_signatures_patient ON clinical_signatures(patient_id, created_at);
+      CREATE TABLE IF NOT EXISTS appointments (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, patient_id INTEGER NOT NULL REFERENCES pacientes(id) ON DELETE CASCADE,
+        professional_name TEXT NOT NULL, starts_at TEXT NOT NULL, ends_at TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('pendiente','confirmada','atendida','cancelada','ausente')),
+        notes TEXT NOT NULL DEFAULT '', created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS idx_appointments_starts ON appointments(starts_at);
       CREATE TABLE IF NOT EXISTS catalog_prices (
         catalog_id INTEGER NOT NULL REFERENCES catalogo(id) ON DELETE CASCADE,
         insurance_id INTEGER NOT NULL REFERENCES insurers(id) ON DELETE CASCADE,

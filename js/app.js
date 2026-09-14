@@ -84,6 +84,7 @@ class OdontoApp {
       });
     const cashButton = document.getElementById('btn-cash');
     if (cashButton) cashButton.hidden = !window.authManager.hasPermission('cash.read');
+    const agendaButton=document.getElementById('btn-agenda'); if(agendaButton) agendaButton.hidden=!window.authManager.hasPermission('clinical.read');
 
     for (const id of ['btn-nuevo-paciente', 'btn-editar-paciente', 'btn-registrar-primer-paciente']) {
       const button = document.getElementById(id);
@@ -848,6 +849,10 @@ class OdontoApp {
       });
     }
     document.getElementById('btn-cash')?.addEventListener('click', () => this.openCash());
+    document.getElementById('btn-agenda')?.addEventListener('click',()=>this.openAgenda());
+    document.getElementById('btn-close-agenda')?.addEventListener('click',()=>this.closeModal('modal-agenda'));
+    document.getElementById('btn-filter-agenda')?.addEventListener('click',()=>this.loadAgenda());
+    document.getElementById('form-appointment')?.addEventListener('submit',event=>this.saveAppointment(event));
     document.getElementById('btn-close-cash')?.addEventListener('click', () => this.closeModal('modal-cash'));
     document.getElementById('btn-cash-filter')?.addEventListener('click', () => this.loadCash());
     document.getElementById('btn-cash-today')?.addEventListener('click', () => this.setCashPeriod('today'));
@@ -1171,6 +1176,10 @@ class OdontoApp {
     this.openModal('modal-cash');
     await this.loadCash();
   }
+
+  async openAgenda() { const today=new Date(); const local=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`; document.getElementById('agenda-from').value=`${local.slice(0,8)}01`; document.getElementById('agenda-to').value=local; const patients=await window.odontoDB.getPacientes(); document.querySelector('#form-appointment [name="patientId"]').innerHTML=patients.map(p=>`<option value="${p.id}">${window.escapeHTML(`${p.nombre} ${p.apellido}`)}</option>`).join(''); document.querySelector('#form-appointment [name="professionalName"]').value=this.config.nombreDoctor||''; this.openModal('modal-agenda'); await this.loadAgenda(); }
+  async loadAgenda(){try{const items=await window.odontoDB.getAppointments(document.getElementById('agenda-from').value,document.getElementById('agenda-to').value);const labels={pendiente:'Pendiente',confirmada:'Confirmada',atendida:'Atendida',cancelada:'Cancelada',ausente:'Ausente'};document.getElementById('agenda-list').innerHTML=items.length?items.map(item=>`<article class="p-3 bg-white border rounded-xl"><div class="flex justify-between gap-2"><b>${window.escapeHTML(item.patientName)}</b><span class="font-black text-rose-800">${labels[item.status]}</span></div><small class="block">${new Date(item.startsAt).toLocaleString('es-DO')} – ${new Date(item.endsAt).toLocaleTimeString('es-DO',{hour:'2-digit',minute:'2-digit'})}</small><small class="block">${window.escapeHTML(item.professionalName)}</small>${item.notes?`<p class="text-xs mt-1">${window.escapeHTML(item.notes)}</p>`:''}</article>`).join(''):'<p class="text-sm text-slate-500">No hay citas en este período.</p>';}catch(error){this.showToast(error.message,'error');}}
+  async saveAppointment(event){event.preventDefault();const f=event.currentTarget;try{await window.odontoDB.saveAppointment({patientId:Number(f.patientId.value),professionalName:f.professionalName.value.trim(),startsAt:f.startsAt.value,endsAt:f.endsAt.value,status:f.status.value,notes:f.notes.value.trim()});this.showToast('Cita guardada.');f.startsAt.value='';f.endsAt.value='';f.notes.value='';await this.loadAgenda();}catch(error){this.showToast(error.message,'error');}}
 
   setCashPeriod(period, reload = true) {
     const today = new Date();

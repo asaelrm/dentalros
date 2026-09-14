@@ -109,6 +109,10 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del cat√
   const signature = await f.request(`/api/pacientes/${patientId}/firmas`, 'POST', { signerType: 'paciente', signerName: 'Paciente de prueba', image: `data:image/png;base64,${Buffer.alloc(200,1).toString('base64')}` }, sessions.doctor);
   assert.equal(signature.status, 201);
   assert.equal((await f.request(`/api/pacientes/${patientId}/firmas`, 'GET', undefined, sessions.secretaria)).data[0].signerName, 'Paciente de prueba');
+  const appointment={patientId,professionalName:'Dra. Prueba',startsAt:'2026-09-14T09:00',endsAt:'2026-09-14T10:00',status:'confirmada',notes:'Control'};
+  assert.equal((await f.request('/api/appointments','POST',appointment,sessions.doctor)).status,201);
+  assert.equal((await f.request('/api/appointments','POST',{...appointment,startsAt:'2026-09-14T09:30',endsAt:'2026-09-14T10:30'},sessions.doctor)).status,409);
+  assert.equal((await f.request('/api/appointments?from=2026-09-14&to=2026-09-14','GET',undefined,sessions.secretaria)).data.length,1);
   const downloaded = await fetch(`${f.url}/api/adjuntos/${attachment.id}`, { headers: { Cookie: sessions.secretaria } });
   assert.equal(downloaded.status, 200);
   assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), Buffer.from([137, 80, 78, 71]));
