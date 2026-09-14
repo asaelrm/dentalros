@@ -89,6 +89,9 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del cat√
   assert.equal((await f.request('/api/users/1/reset-password', 'POST', {}, sessions.soporte)).status, 403);
   assert.equal((await f.request(`/api/users/${users.doctor.id}`, 'PUT', { role: 'admin' }, sessions.soporte)).status, 403);
   assert.equal((await f.request(`/api/users/${users.doctor.id}`, 'PUT', { email: 'intruso@example.test' }, sessions.soporte)).status, 403);
+  const granular = await f.request(`/api/users/${users.auxiliar.id}`, 'PUT', { customPermissions: ['cash.read'] }, f.admin);
+  assert.deepEqual(granular.data.customPermissions, ['cash.read']);
+  assert.equal((await f.request('/api/cash', 'GET', undefined, sessions.auxiliar)).status, 200);
   const diagnosis = await f.request('/api/catalogo', 'POST', { tipo: 'diagnostico', nombre: 'Diagn√≥stico de prueba' }, sessions.doctor);
   assert.equal(diagnosis.data.codigo, 'DGN-000001');
   assert.equal(diagnosis.status, 201);
@@ -184,7 +187,7 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del cat√
   invalid.consultas[0].factura.procedimientos[0].subtotalCentavos = -1;
   assert.equal((await f.request('/api/backup/import', 'POST', invalid, f.admin)).status, 400);
   assert.equal((await f.request('/api/catalogo', 'GET', undefined, sessions.doctor)).data.length, 1);
-  assert.equal((await f.request('/api/cash', 'GET', undefined, sessions.auxiliar)).status, 403);
+  assert.equal((await f.request('/api/cash', 'GET', undefined, sessions.auxiliar)).status, 200);
   await f.request(`/api/pacientes/${patientId}/historia`, 'PUT', { motivoPrincipal: 'Historia generada' }, sessions.doctor);
   const opened = await f.request('/api/cash/session', 'POST', { openingCash: 100, registerNumber: 'Caja principal' }, sessions.secretaria);
   assert.equal(opened.status, 201);

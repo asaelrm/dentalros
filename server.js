@@ -313,6 +313,7 @@ function publicUser(row) {
     role: row.professional_role || row.role,
     email: row.email || '',
     invoiceAccess: Boolean(row.invoice_access),
+    customPermissions: parseData(row.custom_permissions || '[]'),
     invitationPending: Boolean(row.invitation_pending),
     active: Boolean(row.active),
     mustChangePassword: Boolean(row.must_change_password),
@@ -729,8 +730,14 @@ function isKnownProtectedPath(pathname) {
     pathname === '/api/backup/import';
 }
 
-function requirePermission(auth, permission) {
-  if (!permissions.has(auth.user.role, permission, auth.user.invoiceAccess)) throw new HttpError(403, 'No tienes permiso para esta acción.');
+function hasPermission(auth, permission) { return permissions.has(auth.user.role, permission, auth.user.invoiceAccess) || auth.user.customPermissions?.includes(permission); }
+function requirePermission(auth, permission) { if (!hasPermission(auth, permission)) throw new HttpError(403, 'No tienes permiso para esta acción.'); }
+function normalizeCustomPermissions(value, auth) {
+  if (value === undefined) return [];
+  if (auth.user.role !== 'admin') throw new HttpError(403, 'Solo el administrador puede asignar permisos específicos.');
+  const allowed = new Set(Object.values(permissions.grants).flat());
+  if (!Array.isArray(value) || value.some(item => typeof item !== 'string' || !allowed.has(item))) throw new HttpError(400, 'La lista de permisos específicos no es válida.');
+  return [...new Set(value)].sort();
 }
 function requireUserManager(auth) { requirePermission(auth, 'users.manage'); }
 function canManageTarget(auth, target) {
@@ -775,7 +782,7 @@ async function handleCatalog(req, res, pathname, context, auth) {
   if (req.method === 'GET' && !match[1]) {
     const requestedInsurance = new URL(req.url, 'http://localhost').searchParams.get('insuranceId');
     const catalog = getCatalog(db, requestedInsurance ? positiveId(requestedInsurance, 'Tarifario') : null);
-    sendJson(res, 200, permissions.has(auth.user.role, 'invoice.write', auth.user.invoiceAccess) ? catalog : catalog.filter(item => item.tipo === 'diagnostico'));
+    sendJson(res, 200, hasPermission(auth, 'invoice.write') ? catalog : catalog.filter(item => item.tipo === 'diagnostico'));
     return true;
   }
   requirePermission(auth, 'catalog.write');
@@ -811,7 +818,7 @@ async function handleCatalog(req, res, pathname, context, auth) {
 }
 function pricedConsultation(db, auth, incoming, previous = {}) {
   if (Object.hasOwn(incoming, 'factura')) throw new HttpError(400, 'La factura se administra desde su sección independiente.');
-  if (!permissions.has(auth.user.role, 'clinical.write', auth.user.invoiceAccess)) {
+  if (!hasPermission(auth, 'clinical.write')) {
     for (const field of ['motivo', 'diagnostico', 'tratamiento', 'receta', 'observaciones', 'proximaCita']) {
       if (Object.hasOwn(incoming, field) && incoming[field] !== previous[field] && incoming[field] !== '') throw new HttpError(403, 'Solo el personal clínico autorizado puede registrar diagnósticos y notas clínicas.');
       delete incoming[field];
@@ -1225,6 +1232,7 @@ async function handleApi(req, res, pathname, context) {
     if (Object.hasOwn(body, 'invoiceAccess') && typeof body.invoiceAccess !== 'boolean') throw new HttpError(400, 'invoiceAccess debe ser true o false.');
     if (body.invoiceAccess && (auth.user.role !== 'admin' || role !== 'doctor')) throw new HttpError(403, 'Solo el administrador puede conceder facturación a un doctor.');
     const invoiceAccess = role === 'doctor' && auth.user.role === 'admin' && body.invoiceAccess === true;
+    const customPermissions = normalizeCustomPermissions(body.customPermissions, auth);
     const email = body.email ? validateEmail(body.email) : null;
     const hasTemporaryPassword = Object.hasOwn(body, 'password');
     const record = await createPasswordRecord(hasTemporaryPassword ? validatePassword(body.password) : randomBytes(48).toString('base64url'));
@@ -1233,9 +1241,9 @@ async function handleApi(req, res, pathname, context) {
     try {
       id = runTransaction(db, () => {
         const result = db.prepare(`INSERT INTO users
-          (username, display_name, role, professional_role, email, password_hash, password_salt, active, must_change_password, invitation_pending, invoice_access, created_at, updated_at)
-          VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)`)
-          .run(username, displayName, permissions.baseRole(role), role, email, record.hash, record.salt, hasTemporaryPassword ? 1 : 0, hasTemporaryPassword ? 0 : 1, invoiceAccess ? 1 : 0, nowIso(), nowIso());
+          (username, display_name, role, professional_role, email, password_hash, password_salt, active, must_change_password, invitation_pending, invoice_access, custom_permissions, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)`)
+          .run(username, displayName, permissions.baseRole(role), role, email, record.hash, record.salt, hasTemporaryPassword ? 1 : 0, hasTemporaryPassword ? 0 : 1, invoiceAccess ? 1 : 0, JSON.stringify(customPermissions), nowIso(), nowIso());
         writeAudit(db, auth.user.id, 'user_create', 'user', Number(result.lastInsertRowid), { username, role });
         return Number(result.lastInsertRowid);
       });
@@ -1281,7 +1289,7 @@ async function handleApi(req, res, pathname, context) {
     if (!current) throw new HttpError(404, 'Usuario no encontrado.');
     const body = requireObject(await readJsonBody(req, bodyLimit));
     canManageTarget(auth, publicUser(current));
-    const allowedFields = ['username', 'displayName', 'role', 'active', 'email', 'invoiceAccess'];
+    const allowedFields = ['username', 'displayName', 'role', 'active', 'email', 'invoiceAccess', 'customPermissions'];
     if (!allowedFields.some((field) => Object.hasOwn(body, field))) {
       throw new HttpError(400, 'Debes indicar al menos un campo para actualizar.');
     }
@@ -1298,6 +1306,7 @@ async function handleApi(req, res, pathname, context) {
     if (Object.hasOwn(body, 'invoiceAccess') && typeof body.invoiceAccess !== 'boolean') throw new HttpError(400, 'invoiceAccess debe ser true o false.');
     if (Object.hasOwn(body, 'invoiceAccess') && auth.user.role !== 'admin') throw new HttpError(403, 'Solo el administrador puede cambiar el permiso de facturación.');
     const invoiceAccess = role === 'doctor' && (Object.hasOwn(body, 'invoiceAccess') ? body.invoiceAccess : Boolean(current.invoice_access));
+    const customPermissions = Object.hasOwn(body, 'customPermissions') ? normalizeCustomPermissions(body.customPermissions, auth) : parseData(current.custom_permissions || '[]');
     const email = Object.hasOwn(body, 'email') ? validateEmail(body.email) : current.email;
     if (current.email && email !== current.email && auth.user.role !== 'admin') throw new HttpError(403, 'Solo el administrador puede cambiar el correo de una cuenta.');
     if (Object.hasOwn(body, 'active') && typeof body.active !== 'boolean') {
@@ -1322,9 +1331,9 @@ async function handleApi(req, res, pathname, context) {
     try {
       runTransaction(db, () => {
         db.prepare(`
-          UPDATE users SET username = ?, display_name = ?, role = ?, professional_role = ?, email = ?, active = ?, invoice_access = ?, updated_at = ?
+          UPDATE users SET username = ?, display_name = ?, role = ?, professional_role = ?, email = ?, active = ?, invoice_access = ?, custom_permissions = ?, updated_at = ?
           WHERE id = ?
-        `).run(username, displayName, permissions.baseRole(role), role, email, active ? 1 : 0, invoiceAccess ? 1 : 0, nowIso(), userId);
+        `).run(username, displayName, permissions.baseRole(role), role, email, active ? 1 : 0, invoiceAccess ? 1 : 0, JSON.stringify(customPermissions), nowIso(), userId);
         if (!active || email !== current.email) db.prepare('DELETE FROM invitations WHERE user_id = ?').run(userId);
         if (!active) {
           db.prepare('UPDATE sessions SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL')
@@ -1366,7 +1375,7 @@ async function handleApi(req, res, pathname, context) {
     return sendJson(res, 200, { success: true });
   }
 
-  if (!permissions.has(auth.user.role, 'clinical.read', auth.user.invoiceAccess)) throw new HttpError(403, 'Este perfil no tiene acceso a expedientes clínicos.');
+  if (!hasPermission(auth, 'clinical.read')) throw new HttpError(403, 'Este perfil no tiene acceso a expedientes clínicos.');
 
   if (await handleCatalog(req, res, pathname, context, auth)) return;
 

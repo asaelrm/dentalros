@@ -15,7 +15,7 @@ class AuthManager {
     return this.user?.role === 'admin';
   }
 
-  hasPermission(permission) { return window.DentalPermissions.has(this.user?.role, permission, this.user?.invoiceAccess); }
+  hasPermission(permission) { return window.DentalPermissions.has(this.user?.role, permission, this.user?.invoiceAccess) || this.user?.customPermissions?.includes(permission); }
 
   canEdit() { return this.hasPermission('clinical.write'); }
 
@@ -421,6 +421,7 @@ class AuthManager {
     if (!list) return;
     if (count) count.textContent = String(this.users.length);
     const escape = window.escapeHTML;
+    const permissionOptions = [...new Set(Object.values(window.DentalPermissions.grants).flat())];
 
     list.innerHTML = this.users.map(user => {
       const isSelf = user.id === this.user.id;
@@ -444,6 +445,7 @@ class AuthManager {
             </label>
             <label class="active-toggle"><input data-field="active" type="checkbox" ${user.active ? 'checked' : ''} ${isSelf ? 'disabled' : ''} /> Cuenta activa</label>
             ${user.role === 'doctor' ? `<label class="active-toggle"><input data-field="invoiceAccess" type="checkbox" ${user.invoiceAccess ? 'checked' : ''} ${!this.isAdmin() ? 'disabled' : ''} /> Acceso a facturas</label>` : ''}
+            ${this.isAdmin() && user.role !== 'admin' ? `<details class="sm:col-span-2"><summary class="cursor-pointer font-bold">Permisos específicos</summary><div class="grid grid-cols-2 gap-1 mt-2 text-xs">${permissionOptions.map(permission => `<label><input data-custom-permission type="checkbox" value="${permission}" ${user.customPermissions?.includes(permission) ? 'checked' : ''}> ${permission}</label>`).join('')}</div></details>` : ''}
           </div>
           <div class="user-card-actions">
             <button type="button" class="btn-user-save" ${restricted ? 'disabled' : ''}>Guardar cambios</button>
@@ -504,6 +506,7 @@ class AuthManager {
     };
     const invoiceAccess = card.querySelector('[data-field="invoiceAccess"]');
     if (invoiceAccess && this.isAdmin()) body.invoiceAccess = invoiceAccess.checked;
+    if (this.isAdmin()) body.customPermissions = [...card.querySelectorAll('[data-custom-permission]:checked')].map(item => item.value);
     try {
       const updatedUser = await window.apiClient.request(`/api/users/${userId}`, { method: 'PUT', body });
       if (updatedUser.id === this.user.id) {

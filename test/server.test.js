@@ -217,7 +217,7 @@ test('API odontologica: integracion completa', async (t) => {
       for (const user of users.data) {
         assert.deepEqual(
           Object.keys(user).sort(),
-          ['active', 'createdAt', 'displayName', 'email', 'id', 'invitationPending', 'invoiceAccess', 'mustChangePassword', 'role', 'updatedAt', 'username'].sort()
+          ['active', 'createdAt', 'customPermissions', 'displayName', 'email', 'id', 'invitationPending', 'invoiceAccess', 'mustChangePassword', 'role', 'updatedAt', 'username'].sort()
         );
       }
     });

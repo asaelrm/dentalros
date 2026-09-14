@@ -113,6 +113,7 @@ function openDatabase(filename) {
     if (!columns.has('email')) db.exec("ALTER TABLE users ADD COLUMN email TEXT");
     if (!columns.has('invitation_pending')) db.exec("ALTER TABLE users ADD COLUMN invitation_pending INTEGER NOT NULL DEFAULT 0");
     if (!columns.has('invoice_access')) db.exec("ALTER TABLE users ADD COLUMN invoice_access INTEGER NOT NULL DEFAULT 0");
+    if (!columns.has('custom_permissions')) db.exec("ALTER TABLE users ADD COLUMN custom_permissions TEXT NOT NULL DEFAULT '[]'");
     db.exec(`
       CREATE UNIQUE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE email IS NOT NULL;
       CREATE TABLE IF NOT EXISTS invitations (
