@@ -27,14 +27,19 @@
         if (!canPrice && requested !== price) fail('No tienes permiso para cambiar precios.');
         price = requested;
       }
-      return { procedimientoId: item.id, nombre: old?.nombre ?? item.nombre, diagnosticoId: diagnosis?.id ?? null, diagnostico: diagnosis?.nombre ?? '', cantidad: quantity, precioCentavos: price, subtotalCentavos: price * quantity };
+      const coveragePercent = Number(line.coveragePercent ?? old?.coveragePercent ?? 0);
+      if (!Number.isFinite(coveragePercent) || coveragePercent < 0 || coveragePercent > 100) fail('La cobertura del procedimiento debe estar entre 0% y 100%.');
+      const authorizationNumber = String(line.authorizationNumber ?? old?.authorizationNumber ?? '').trim();
+      if (authorizationNumber.length > 100) fail('La autorización del procedimiento admite hasta 100 caracteres.');
+      const subtotalCentavos = price * quantity;
+      return { procedimientoId: item.id, nombre: old?.nombre ?? item.nombre, diagnosticoId: diagnosis?.id ?? null, diagnostico: diagnosis?.nombre ?? '', cantidad: quantity, precioCentavos: price, subtotalCentavos, coveragePercent, authorizationNumber, insuranceCoveredCentavos: Math.round(subtotalCentavos * coveragePercent / 100) };
     });
   }
   function total(items) { return items.reduce((sum, item) => sum + item.subtotalCentavos, 0) / 100; }
   function validateSnapshot(items) {
     if (!Array.isArray(items) || items.length > 100) fail('Detalle de procedimientos inválido.');
     for (const item of items) {
-      if (!item || typeof item.nombre !== 'string' || typeof item.diagnostico !== 'string' || !Number.isSafeInteger(item.procedimientoId) || item.procedimientoId < 1 || !Number.isInteger(item.cantidad) || item.cantidad < 1 || item.cantidad > 100 || !Number.isSafeInteger(item.precioCentavos) || item.precioCentavos < 0 || item.precioCentavos > 1000000000 || item.subtotalCentavos !== item.precioCentavos * item.cantidad) fail('Importes inválidos en el respaldo.');
+      if (!item || typeof item.nombre !== 'string' || typeof item.diagnostico !== 'string' || !Number.isSafeInteger(item.procedimientoId) || item.procedimientoId < 1 || !Number.isInteger(item.cantidad) || item.cantidad < 1 || item.cantidad > 100 || !Number.isSafeInteger(item.precioCentavos) || item.precioCentavos < 0 || item.precioCentavos > 1000000000 || item.subtotalCentavos !== item.precioCentavos * item.cantidad || (item.coveragePercent != null && (!Number.isFinite(Number(item.coveragePercent)) || Number(item.coveragePercent)<0 || Number(item.coveragePercent)>100))) fail('Importes inválidos en el respaldo.');
     }
     return items;
   }

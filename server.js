@@ -847,10 +847,13 @@ function invoiceFromInput(db, auth, body, previous = null, patientId = null) {
     }
   }
   const procedimientos = billing.lines(sourceLines, catalog, true, previous?.procedimientos || []);
+  const insuranceCoveredCentavos = procedimientos.reduce((sum,line)=>sum+Number(line.insuranceCoveredCentavos||0),0);
   return {
     diagnostico,
     procedimientos,
     total: billing.total(procedimientos),
+    insuranceCovered: insuranceCoveredCentavos / 100,
+    patientResponsibility: (Math.round(billing.total(procedimientos) * 100) - insuranceCoveredCentavos) / 100,
     estado: 'abierta',
     creadaEn: previous?.creadaEn || nowIso(),
     actualizadaEn: nowIso(),
@@ -1136,9 +1139,10 @@ async function handleApi(req, res, pathname, context) {
     if (reference.length > 150) throw new HttpError(400, 'La referencia admite hasta 150 caracteres.');
     const amountCentavos = Math.round(Number(consultation.factura.total) * 100);
     const previousTotals = db.prepare("SELECT COALESCE(SUM(patient_paid_centavos),0) paid, COALESCE(MAX(insurance_covered_centavos),0) insurance, COALESCE(MAX(coverage_percent),0) coverage FROM cash_payments WHERE consultation_id=? AND status='pagado'").get(consultationId);
-    const coveragePercent = Number(Number(previousTotals.paid) > 0 || Number(previousTotals.insurance) > 0 ? previousTotals.coverage : (body.coveragePercent ?? 0));
+    const lineInsuranceCentavos = (consultation.factura.procedimientos || []).reduce((sum,line)=>sum+Number(line.insuranceCoveredCentavos||0),0);
+    const coveragePercent = lineInsuranceCentavos > 0 ? Number((lineInsuranceCentavos * 100 / amountCentavos).toFixed(4)) : Number(Number(previousTotals.paid) > 0 || Number(previousTotals.insurance) > 0 ? previousTotals.coverage : (body.coveragePercent ?? 0));
     if (!Number.isFinite(coveragePercent) || coveragePercent < 0 || coveragePercent > 100) throw new HttpError(400, 'La cobertura del seguro debe estar entre 0% y 100%.');
-    const totalInsuranceCentavos = Number(previousTotals.insurance) || Math.round(amountCentavos * coveragePercent / 100);
+    const totalInsuranceCentavos = Number(previousTotals.insurance) || lineInsuranceCentavos || Math.round(amountCentavos * coveragePercent / 100);
     const remainingCentavos = Math.max(0, amountCentavos - totalInsuranceCentavos - Number(previousTotals.paid));
     if (remainingCentavos === 0) throw new HttpError(409, 'Esta factura ya está pagada completamente.');
     const patientPaidCentavos = body.paymentAmount == null || body.paymentAmount === '' ? remainingCentavos : billing.cents(Number(body.paymentAmount));

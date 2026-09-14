@@ -129,9 +129,12 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del cat√
   const insuredInvoicePath = `/api/consultas/${insuredVisit.data.id}/factura`;
   assert.equal((await f.request(insuredInvoicePath, 'PUT', { diagnostico: 'Control', procedimientos: [{ procedimientoId: procedure.data.id, cantidad: 1 }] }, sessions.secretaria)).status, 409);
   assert.equal((await f.request('/api/tarifarios', 'PUT', { insuranceId: customInsurer.data.id, prices: [{ catalogId: procedure.data.id, price: 8.5 }] }, f.admin)).status, 200);
-  const insuredInvoice = await f.request(insuredInvoicePath, 'PUT', { diagnostico: 'Control', procedimientos: [{ procedimientoId: procedure.data.id, cantidad: 1 }] }, sessions.secretaria);
+  const insuredInvoice = await f.request(insuredInvoicePath, 'PUT', { diagnostico: 'Control', procedimientos: [{ procedimientoId: procedure.data.id, cantidad: 1, coveragePercent: 80, authorizationNumber: 'AUT-PROC-1' }] }, sessions.secretaria);
   assert.equal(insuredInvoice.data.factura.total, 8.5);
   assert.equal(insuredInvoice.data.factura.tariffName, 'ARS Comunitaria');
+  assert.equal(insuredInvoice.data.factura.insuranceCovered, 6.8);
+  assert.equal(insuredInvoice.data.factura.patientResponsibility, 1.7);
+  assert.equal(insuredInvoice.data.factura.procedimientos[0].authorizationNumber, 'AUT-PROC-1');
   await f.request('/api/tarifarios', 'PUT', { insuranceId: customInsurer.data.id, prices: [{ catalogId: procedure.data.id, price: 9.75 }] }, f.admin);
   assert.equal(JSON.parse(f.server.database.prepare('SELECT data FROM consultas WHERE id = ?').get(insuredVisit.data.id).data).factura.total, 8.5);
   assert.equal((await f.request(`/api/pacientes/${patientId}/consultas`, 'POST', { motivo: 'No permitido' }, sessions.auxiliar)).status, 403);

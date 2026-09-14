@@ -26,7 +26,7 @@ class PDFExporter {
         <td style="padding:10px 8px;"><strong>${escape(item.nombre)}</strong>${item.diagnostico ? `<br><small style="color:#64748b;">${escape(item.diagnostico)}</small>` : ''}</td>
         <td style="padding:10px 8px;text-align:center;">${Number(item.cantidad)}</td>
         <td style="padding:10px 8px;text-align:right;">$${money(item.precioCentavos)}</td>
-        <td style="padding:10px 8px;text-align:right;font-weight:700;">$${money(item.subtotalCentavos)}</td>
+        <td style="padding:10px 8px;text-align:right;font-weight:700;">$${money(item.subtotalCentavos)}${Number(item.coveragePercent||0)>0?`<br><small>ARS ${Number(item.coveragePercent)}%${item.authorizationNumber?` · Aut. ${escape(item.authorizationNumber)}`:''}</small>`:''}</td>
       </tr>`).join('');
 
     return `<div style="font-family:'Segoe UI',Tahoma,Arial,sans-serif;color:#1e293b;background:#fff;max-width:800px;margin:0 auto;padding:30px 36px;line-height:1.4;">

@@ -19,7 +19,7 @@ class CatalogManager {
     document.getElementById('btn-add-procedimiento').addEventListener('click', () => {
       const first = this.items.find(item => item.tipo === 'procedimiento' && item.activo && item.precioCentavos != null);
       if (!first) return;
-      this.lines.push({ procedimientoId: first.id, diagnosticoId: null, cantidad: 1, precio: first.precioCentavos / 100 });
+      this.lines.push({ procedimientoId: first.id, diagnosticoId: null, cantidad: 1, precio: first.precioCentavos / 100, coveragePercent: 0, authorizationNumber: '' });
       this.renderLines();
     });
   }
@@ -94,7 +94,8 @@ class CatalogManager {
       procedimientoId: item.procedimientoId,
       diagnosticoId: item.diagnosticoId,
       cantidad: item.cantidad,
-      precio: item.precioCentavos / 100
+      precio: item.precioCentavos / 100,
+      coveragePercent: Number(item.coveragePercent || 0), authorizationNumber: item.authorizationNumber || ''
     }));
     const status = document.getElementById('factura-catalog-status');
     status.textContent = 'Cargando catálogo…';
@@ -119,12 +120,14 @@ class CatalogManager {
       <label>Diagnóstico asociado<select data-field="diagnosticoId"><option value="">Sin asociar</option>${this.items.filter(item => item.tipo === 'diagnostico' && (item.activo || item.id === line.diagnosticoId)).map(item => `<option value="${item.id}" ${item.id === line.diagnosticoId ? 'selected' : ''}>${escape(item.nombre)}</option>`).join('')}</select></label>
       <label>Cantidad<input data-field="cantidad" type="number" min="1" max="100" step="1" required value="${line.cantidad}"></label>
       <label>Precio unitario ($)<input data-field="precio" type="number" min="0" max="10000000" step="0.01" required value="${line.precio}" ${this.allowed('invoice.price') ? '' : 'readonly'}></label>
+      <label>Cobertura ARS (%)<input data-field="coveragePercent" type="number" min="0" max="100" step="0.01" value="${Number(line.coveragePercent || 0)}"></label>
+      <label>Autorización ARS<input data-field="authorizationNumber" maxlength="100" value="${escape(line.authorizationNumber || '')}" placeholder="Número de autorización"></label>
       <strong class="line-subtotal"></strong><button type="button" class="secondary-button">Quitar</button>
     </div>`).join('');
     list.querySelectorAll('.procedure-line').forEach(row => {
       const index = Number(row.dataset.index);
       row.querySelectorAll('[data-field]').forEach(input => input.addEventListener('input', () => {
-        this.lines[index][input.dataset.field] = input.value === '' && input.dataset.field === 'diagnosticoId' ? null : Number(input.value);
+        this.lines[index][input.dataset.field] = input.dataset.field === 'authorizationNumber' ? input.value.trim() : (input.value === '' && input.dataset.field === 'diagnosticoId' ? null : Number(input.value));
         if (input.dataset.field === 'procedimientoId') {
           const configured = this.items.find(item => item.id === Number(input.value)).precioCentavos;
           this.lines[index].precio = configured == null ? null : configured / 100;
@@ -137,14 +140,16 @@ class CatalogManager {
     this.updateTotal();
   }
   updateTotal() {
-    let total = 0;
+    let total = 0; let insurance = 0;
     document.querySelectorAll('.procedure-line').forEach((row, index) => {
       const line = this.lines[index];
       const subtotal = Math.round(line.precio * 100) * line.cantidad;
       total += subtotal;
+      insurance += Math.round(subtotal * Number(line.coveragePercent || 0) / 100);
       row.querySelector('.line-subtotal').textContent = `Subtotal: $${(subtotal / 100).toFixed(2)}`;
     });
     document.getElementById('form-factura').total.value = (total / 100).toFixed(2);
+    document.getElementById('invoice-insurance-summary').textContent = `Seguro: $${(insurance / 100).toFixed(2)} · Paciente: $${((total-insurance)/100).toFixed(2)}`;
   }
   getLines() { return this.lines.map(line => ({ ...line })); }
 }
