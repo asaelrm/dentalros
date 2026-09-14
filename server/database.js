@@ -209,6 +209,38 @@ function openDatabase(filename) {
       SELECT id, CASE WHEN payment_method IN ('efectivo','tarjeta','transferencia','otro') THEN payment_method ELSE 'otro' END,
       patient_paid_centavos, COALESCE(reference,'') FROM cash_payments cp
       WHERE NOT EXISTS (SELECT 1 FROM cash_payment_lines pl WHERE pl.cash_payment_id = cp.id)`);
+    const hasSinglePaymentConstraint = db.prepare("PRAGMA index_list('cash_payments')").all().some(index => Number(index.unique) === 1 && index.origin === 'u');
+    if (hasSinglePaymentConstraint) {
+      db.exec(`
+        CREATE TABLE cash_payments_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          consultation_id INTEGER NOT NULL REFERENCES consultas(id) ON DELETE RESTRICT,
+          patient_id INTEGER NOT NULL REFERENCES pacientes(id) ON DELETE RESTRICT,
+          amount_centavos INTEGER NOT NULL CHECK (amount_centavos >= 0),
+          payment_method TEXT NOT NULL CHECK (payment_method IN ('efectivo','tarjeta','transferencia','seguro','otro')),
+          reference TEXT, received_by INTEGER REFERENCES users(id) ON DELETE SET NULL,
+          received_by_name TEXT NOT NULL, paid_at TEXT NOT NULL,
+          coverage_percent REAL NOT NULL DEFAULT 0, insurance_covered_centavos INTEGER NOT NULL DEFAULT 0,
+          patient_paid_centavos INTEGER NOT NULL DEFAULT 0, amount_received_centavos INTEGER NOT NULL DEFAULT 0,
+          change_centavos INTEGER NOT NULL DEFAULT 0, cash_session_id INTEGER REFERENCES cash_sessions(id),
+          status TEXT NOT NULL DEFAULT 'pagado', reprint_count INTEGER NOT NULL DEFAULT 0
+        ) STRICT;
+        INSERT INTO cash_payments_new SELECT id,consultation_id,patient_id,amount_centavos,payment_method,reference,received_by,received_by_name,paid_at,coverage_percent,insurance_covered_centavos,patient_paid_centavos,amount_received_centavos,change_centavos,cash_session_id,status,reprint_count FROM cash_payments;
+        CREATE TABLE cash_payment_lines_new (
+          id INTEGER PRIMARY KEY AUTOINCREMENT, cash_payment_id INTEGER NOT NULL REFERENCES cash_payments_new(id) ON DELETE RESTRICT,
+          method TEXT NOT NULL CHECK(method IN ('efectivo','tarjeta','transferencia','cheque','credito','otro')),
+          amount_centavos INTEGER NOT NULL CHECK(amount_centavos >= 0), card_brand TEXT NOT NULL DEFAULT '', card_type TEXT NOT NULL DEFAULT '', last_four TEXT NOT NULL DEFAULT '',
+          authorization_number TEXT NOT NULL DEFAULT '', reference_number TEXT NOT NULL DEFAULT '', processor TEXT NOT NULL DEFAULT ''
+        ) STRICT;
+        INSERT INTO cash_payment_lines_new SELECT * FROM cash_payment_lines;
+        DROP TABLE cash_payment_lines; DROP TABLE cash_payments;
+        ALTER TABLE cash_payments_new RENAME TO cash_payments;
+        ALTER TABLE cash_payment_lines_new RENAME TO cash_payment_lines;
+        CREATE INDEX idx_cash_payments_paid_at ON cash_payments(paid_at);
+        CREATE INDEX idx_cash_payments_patient ON cash_payments(patient_id);
+        CREATE INDEX idx_cash_payment_lines_receipt ON cash_payment_lines(cash_payment_id);
+      `);
+    }
     const insurers = [
       ['SeNaSa','SENASA'],['Primera ARS','PRIMERA'],['MAPFRE Salud ARS','MAPFRE'],['ARS Universal','UNIVERSAL'],
       ['ARS Futuro','FUTURO'],['ARS SEMMA','SEMMA'],['ARS Renacer','RENACER'],['ARS Monumental','MONUMENTAL'],

@@ -640,7 +640,6 @@ function normalizeBackup(body) {
     const consultationIds = new Set(consultas.map(item => item.id));
     cashPayments = body.cashPayments.map(item => ({ id: positiveId(item.id, 'ID de cobro'), consultationId: positiveId(item.consultationId, 'Consulta del cobro'), patientId: positiveId(item.patientId, 'Paciente del cobro'), amountCentavos: Number(item.amountCentavos), coveragePercent: Number(item.coveragePercent || 0), insuranceCoveredCentavos: Number(item.insuranceCoveredCentavos || 0), patientPaidCentavos: Number(item.patientPaidCentavos ?? item.amountCentavos), amountReceivedCentavos: Number(item.amountReceivedCentavos ?? item.patientPaidCentavos ?? item.amountCentavos), changeCentavos: Number(item.changeCentavos || 0), paymentMethod: String(item.paymentMethod), reference: String(item.reference || ''), receivedByName: String(item.receivedByName || ''), paidAt: String(item.paidAt || '') }));
     ensureUnique(cashPayments, item => item.id, 'cobros');
-    ensureUnique(cashPayments, item => item.consultationId, 'cobros por factura');
     if (cashPayments.some(item => !consultationIds.has(item.consultationId) || !patientIds.has(item.patientId) || !Number.isSafeInteger(item.amountCentavos) || item.amountCentavos < 0 || !['efectivo','tarjeta','transferencia','seguro','otro'].includes(item.paymentMethod) || !item.receivedByName || !item.paidAt)) throw new HttpError(400, 'El respaldo contiene un cobro inválido.');
   }
   for (const item of consultas) {
@@ -1079,13 +1078,15 @@ async function handleApi(req, res, pathname, context) {
     const cashierId = requestUrl.searchParams.get('cashierId'); const paymentMethodFilter = requestUrl.searchParams.get('method'); const cardBrand = requestUrl.searchParams.get('cardBrand'); const registerNumber = requestUrl.searchParams.get('register'); const invoiceFilter = requestUrl.searchParams.get('invoice'); const patientFilter = requestUrl.searchParams.get('patient');
     payments = payments.filter(payment => (!cashierId || payment.receivedBy === Number(cashierId)) && (!paymentMethodFilter || payment.lines.some(line => line.method === paymentMethodFilter)) && (!cardBrand || payment.lines.some(line => String(line.cardBrand || '').toLowerCase().includes(cardBrand.toLowerCase()))) && (!registerNumber || String(db.prepare('SELECT register_number FROM cash_sessions WHERE id = ?').get(payment.sessionId)?.register_number || '').toLowerCase().includes(registerNumber.toLowerCase())) && (!invoiceFilter || payment.invoiceNumber.toLowerCase().includes(invoiceFilter.toLowerCase())) && (!patientFilter || payment.patientName.toLowerCase().includes(patientFilter.toLowerCase())));
     const pendingInvoices = db.prepare(`SELECT c.id, c.paciente_id, c.data, p.data AS patient_data FROM consultas c
-      JOIN pacientes p ON p.id = c.paciente_id LEFT JOIN cash_payments cp ON cp.consultation_id = c.id
-      WHERE json_extract(c.data, '$.factura.estado') = 'cerrada' AND cp.id IS NULL
+      JOIN pacientes p ON p.id = c.paciente_id
+      WHERE json_extract(c.data, '$.factura.estado') = 'cerrada'
       AND EXISTS (SELECT 1 FROM historias h WHERE h.paciente_id = c.paciente_id)
       AND json_array_length(json_extract(c.data, '$.factura.procedimientos')) > 0 ORDER BY c.id DESC`).all().map(row => {
         const consultation = parseData(row.data); const patient = parseData(row.patient_data);
-        return { consultationId: Number(row.id), patientId: Number(row.paciente_id), patientName: `${patient.nombre || ''} ${patient.apellido || ''}`.trim(), date: consultation.fecha || '', diagnosis: consultation.factura.diagnostico, total: consultation.factura.total };
-      });
+        const paid = db.prepare("SELECT COALESCE(SUM(patient_paid_centavos),0) paid, COALESCE(MAX(insurance_covered_centavos),0) insurance FROM cash_payments WHERE consultation_id=? AND status='pagado'").get(row.id);
+        const totalCentavos = Math.round(Number(consultation.factura.total) * 100); const remainingCentavos = Math.max(0, totalCentavos - Number(paid.insurance) - Number(paid.paid));
+        return { consultationId: Number(row.id), patientId: Number(row.paciente_id), patientName: `${patient.nombre || ''} ${patient.apellido || ''}`.trim(), date: consultation.fecha || '', diagnosis: consultation.factura.diagnostico, total: consultation.factura.total, insuranceCovered: Number(paid.insurance) / 100, paid: Number(paid.paid) / 100, remaining: remainingCentavos / 100 };
+      }).filter(item => item.remaining > 0);
     const confirmed = payments.filter(payment => payment.status === 'pagado'); const byMethod = {};
     for (const payment of confirmed) for (const line of payment.lines) { const key = line.method === 'tarjeta' ? `Tarjeta ${line.cardBrand || 'Otra'} ${line.cardType || ''}`.trim() : line.method; byMethod[key] = Number(((byMethod[key] || 0) + line.amount).toFixed(2)); }
     const currentSessionRow = db.prepare("SELECT * FROM cash_sessions WHERE cashier_user_id = ? AND status = 'abierta' ORDER BY id DESC LIMIT 1").get(auth.user.id);
@@ -1133,10 +1134,15 @@ async function handleApi(req, res, pathname, context) {
     const reference = String(body.reference || '').trim();
     if (reference.length > 150) throw new HttpError(400, 'La referencia admite hasta 150 caracteres.');
     const amountCentavos = Math.round(Number(consultation.factura.total) * 100);
-    const coveragePercent = Number(body.coveragePercent ?? 0);
+    const previousTotals = db.prepare("SELECT COALESCE(SUM(patient_paid_centavos),0) paid, COALESCE(MAX(insurance_covered_centavos),0) insurance, COALESCE(MAX(coverage_percent),0) coverage FROM cash_payments WHERE consultation_id=? AND status='pagado'").get(consultationId);
+    const coveragePercent = Number(Number(previousTotals.paid) > 0 || Number(previousTotals.insurance) > 0 ? previousTotals.coverage : (body.coveragePercent ?? 0));
     if (!Number.isFinite(coveragePercent) || coveragePercent < 0 || coveragePercent > 100) throw new HttpError(400, 'La cobertura del seguro debe estar entre 0% y 100%.');
-    const insuranceCoveredCentavos = Math.round(amountCentavos * coveragePercent / 100);
-    const patientPaidCentavos = amountCentavos - insuranceCoveredCentavos;
+    const totalInsuranceCentavos = Number(previousTotals.insurance) || Math.round(amountCentavos * coveragePercent / 100);
+    const remainingCentavos = Math.max(0, amountCentavos - totalInsuranceCentavos - Number(previousTotals.paid));
+    if (remainingCentavos === 0) throw new HttpError(409, 'Esta factura ya está pagada completamente.');
+    const patientPaidCentavos = body.paymentAmount == null || body.paymentAmount === '' ? remainingCentavos : billing.cents(Number(body.paymentAmount));
+    if (patientPaidCentavos <= 0 || patientPaidCentavos > remainingCentavos) throw new HttpError(400, 'El abono debe ser mayor que cero y no puede superar el saldo pendiente.');
+    const insuranceCoveredCentavos = Number(previousTotals.insurance) > 0 ? 0 : totalInsuranceCentavos;
     const amountReceivedCentavos = body.amountReceived == null || body.amountReceived === '' ? patientPaidCentavos : billing.cents(Number(body.amountReceived));
     if (amountReceivedCentavos < patientPaidCentavos) throw new HttpError(400, 'El monto entregado por el paciente no cubre la parte que le corresponde pagar.');
     const changeCentavos = amountReceivedCentavos - patientPaidCentavos;
@@ -1163,10 +1169,10 @@ async function handleApi(req, res, pathname, context) {
         return receiptId;
       });
     } catch (error) {
-      if (String(error.message).includes('UNIQUE')) throw new HttpError(409, 'Esta factura ya fue cobrada.');
+      if (String(error.message).includes('UNIQUE')) throw new HttpError(409, 'No se pudo registrar el abono duplicado.');
       throw error;
     }
-    return sendJson(res, 201, { id, voucherNumber: `REC-${String(id).padStart(8, '0')}`, consultationId, amount: amountCentavos / 100, coveragePercent, insuranceCovered: insuranceCoveredCentavos / 100, patientPaid: patientPaidCentavos / 100, amountReceived: amountReceivedCentavos / 100, change: changeCentavos / 100, paymentMethod, payments: paymentLines.map(line => ({ method: line.method, amount: line.amountCentavos / 100, cardBrand: line.cardBrand, cardType: line.cardType, lastFour: line.lastFour, authorizationNumber: line.authorizationNumber, referenceNumber: line.referenceNumber, processor: line.processor })), services: consultation.factura.procedimientos || [], reference, receivedByName: auth.user.displayName, cashierUsername: auth.user.username, paidAt });
+    return sendJson(res, 201, { id, voucherNumber: `REC-${String(id).padStart(8, '0')}`, consultationId, amount: amountCentavos / 100, coveragePercent, insuranceCovered: insuranceCoveredCentavos / 100, patientPaid: patientPaidCentavos / 100, remaining: (remainingCentavos - patientPaidCentavos) / 100, amountReceived: amountReceivedCentavos / 100, change: changeCentavos / 100, paymentMethod, payments: paymentLines.map(line => ({ method: line.method, amount: line.amountCentavos / 100, cardBrand: line.cardBrand, cardType: line.cardType, lastFour: line.lastFour, authorizationNumber: line.authorizationNumber, referenceNumber: line.referenceNumber, processor: line.processor })), services: consultation.factura.procedimientos || [], reference, receivedByName: auth.user.displayName, cashierUsername: auth.user.username, paidAt });
   }
 
   if (pathname === '/api/users' && method === 'GET') {
