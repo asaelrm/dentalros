@@ -101,7 +101,7 @@ class PDFExporter {
     container.style.cssText = 'position:absolute;left:-9999px;top:0;width:800px;';
     document.body.appendChild(container);
     const safeId = String(paciente.cedula || paciente.id).replace(/[^a-zA-Z0-9_-]/g, '_');
-    const filename = `Factura_FAC-${String(consulta.id).padStart(6, '0')}_${safeId}.pdf`;
+    const filename = `Factura_${String(config?.invoicePrefix || 'FAC').toUpperCase()}-${String(consulta.id).padStart(6, '0')}_${safeId}.pdf`;
     if (!window.html2pdf) {
       container.remove();
       throw new Error('El generador de PDF no está disponible.');
@@ -123,7 +123,7 @@ class PDFExporter {
     const printWindow = window.open('', '_blank', 'width=900,height=800');
     if (!printWindow) throw new Error('Permite las ventanas emergentes para imprimir la factura.');
     printWindow.document.open();
-    printWindow.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Factura_FAC-${String(consulta.id).padStart(6, '0')}</title><style>@page{size:letter portrait;margin:8mm}body{margin:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body>${invoiceHtml}<script>window.onload=()=>setTimeout(()=>{window.focus();window.print()},300)<\/script></body></html>`);
+    printWindow.document.write(`<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Factura_${String(config?.invoicePrefix || 'FAC').toUpperCase()}-${String(consulta.id).padStart(6, '0')}</title><style>@page{size:letter portrait;margin:8mm}body{margin:0;background:#fff;-webkit-print-color-adjust:exact;print-color-adjust:exact}</style></head><body>${invoiceHtml}<script>window.onload=()=>setTimeout(()=>{window.focus();window.print()},300)<\/script></body></html>`);
     printWindow.document.close();
   }
 
