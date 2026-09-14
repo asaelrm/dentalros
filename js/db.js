@@ -84,6 +84,7 @@ class OdontoDB {
   async getPresupuestos(patientId) { return this.api.request(`/api/pacientes/${Number(patientId)}/presupuestos`); }
   async savePresupuesto(patientId, data) { return this.api.request(`/api/pacientes/${Number(patientId)}/presupuestos`, { method: 'POST', body: data }); }
   async convertPresupuesto(id) { return this.api.request(`/api/presupuestos/${Number(id)}/convertir`, { method: 'POST', body: {} }); }
+  async deletePresupuesto(id) { return this.api.request(`/api/presupuestos/${Number(id)}`, { method: 'DELETE' }); }
 
   async getPacientes() {
     return this.api.request('/api/pacientes');
