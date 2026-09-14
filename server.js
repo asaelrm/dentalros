@@ -714,8 +714,8 @@ function isKnownProtectedPath(pathname) {
     pathname === '/api/auth/logout' ||
     pathname === '/api/auth/change-password' ||
     pathname === '/api/users' ||
-    pathname === '/api/insurers' || pathname === '/api/backups' || pathname === '/api/appointments' || /^\/api\/appointments\/\d+$/.test(pathname) ||
-    pathname === '/api/cash' || /^\/api\/cash\/(?:session|session\/close|payments\/\d+\/(?:void|reprint))$/.test(pathname) ||
+    pathname === '/api/insurers' || pathname === '/api/backups' || pathname === '/api/dashboard' || pathname === '/api/appointments' || /^\/api\/appointments\/\d+$/.test(pathname) ||
+    pathname === '/api/cash' || /^\/api\/cash\/(?:session|session\/close|sessions\/\d+\/approve|payments\/\d+\/(?:void|reprint))$/.test(pathname) ||
     /^\/api\/consultas\/\d+\/charge$/.test(pathname) ||
     pathname === '/api/catalogo' || /^\/api\/catalogo\/\d+$/.test(pathname) || pathname === '/api/tarifarios' ||
     /^\/api\/users\/\d+(?:\/reset-password)?$/.test(pathname) ||
@@ -1066,6 +1066,18 @@ async function handleApi(req, res, pathname, context) {
     const rows=db.prepare(`SELECT a.*,json_extract(p.data,'$.nombre') nombre,json_extract(p.data,'$.apellido') apellido FROM appointments a JOIN pacientes p ON p.id=a.patient_id WHERE substr(a.starts_at,1,10) BETWEEN ? AND ? ORDER BY a.starts_at`).all(from,to);
     return sendJson(res,200,rows.map(row=>({id:Number(row.id),patientId:Number(row.patient_id),patientName:`${row.nombre||''} ${row.apellido||''}`.trim(),professionalName:row.professional_name,startsAt:row.starts_at,endsAt:row.ends_at,status:row.status,notes:row.notes})));
   }
+
+  if (pathname === '/api/dashboard' && method === 'GET') {
+    requireAdmin(auth); const today=nowIso().slice(0,10); const month=`${today.slice(0,7)}-01`;
+    const payments=db.prepare("SELECT * FROM cash_payments WHERE status='pagado'").all();
+    const periodTotal=(from)=>payments.filter(p=>String(p.paid_at).slice(0,10)>=from).reduce((sum,p)=>sum+Number(p.patient_paid_centavos),0)/100;
+    const consultations=db.prepare('SELECT id,data FROM consultas').all().map(row=>({id:Number(row.id),data:parseData(row.data)}));
+    const outstanding=consultations.reduce((sum,item)=>{const invoice=item.data.factura;if(invoice?.estado!=='cerrada')return sum;const paid=payments.filter(p=>Number(p.consultation_id)===item.id).reduce((n,p)=>n+Number(p.patient_paid_centavos)+Number(p.insurance_covered_centavos),0);return sum+Math.max(0,Math.round(Number(invoice.total)*100)-paid);},0)/100;
+    const procedures={}; for(const item of consultations) for(const line of item.data.factura?.procedimientos||[]) procedures[line.nombre]=(procedures[line.nombre]||0)+Number(line.cantidad||0);
+    const byCashier={}; for(const payment of payments) byCashier[payment.received_by_name]=(byCashier[payment.received_by_name]||0)+Number(payment.patient_paid_centavos)/100;
+    const pendingApprovals=db.prepare("SELECT COUNT(*) count FROM cash_sessions WHERE approval_status='pendiente'").get().count;
+    return sendJson(res,200,{todayTotal:periodTotal(today),monthTotal:periodTotal(month),outstanding,insurancePending:consultations.reduce((sum,item)=>sum+Math.max(0,Number(item.data.factura?.insuranceCovered||0)-payments.filter(p=>Number(p.consultation_id)===item.id).reduce((n,p)=>n+Number(p.insurance_covered_centavos)/100,0)),0),voidedCount:db.prepare("SELECT COUNT(*) count FROM cash_payments WHERE status='anulado'").get().count,pendingApprovals:Number(pendingApprovals),topProcedures:Object.entries(procedures).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([name,count])=>({name,count})),cashierProduction:Object.entries(byCashier).sort((a,b)=>b[1]-a[1]).map(([name,total])=>({name,total}))});
+  }
   const appointmentMatch=pathname.match(/^\/api\/appointments\/(\d+)$/);
   if ((pathname==='/api/appointments'&&method==='POST')||(appointmentMatch&&method==='PUT')) {
     requirePermission(auth,'consultations.write'); const body=requireObject(await readJsonBody(req,bodyLimit)); const id=appointmentMatch?positiveId(appointmentMatch[1],'ID de cita'):null; if(id&&!db.prepare('SELECT 1 FROM appointments WHERE id=?').get(id)) throw new HttpError(404,'Cita no encontrada.');
@@ -1128,6 +1140,9 @@ async function handleApi(req, res, pathname, context) {
     const change = db.prepare("SELECT COALESCE(SUM(change_centavos),0) total FROM cash_payments WHERE cash_session_id=? AND status='pagado'").get(session.id).total; const expected = Number(session.opening_cash_centavos) + Number(cash) - Number(change); const difference = counted - expected; const closedAt = nowIso();
     const approvalStatus = difference === 0 ? 'no_requerida' : 'pendiente'; db.prepare("UPDATE cash_sessions SET closed_at=?,expected_cash_centavos=?,counted_cash_centavos=?,difference_centavos=?,closing_notes=?,denominations_json=?,approval_status=?,status='cerrada' WHERE id=?").run(closedAt,expected,counted,difference,notes,JSON.stringify(denominations),approvalStatus,session.id); writeAudit(db,auth.user.id,'cash_session_close','cash_session',Number(session.id),{expected,counted,difference,notes,approvalStatus}); return sendJson(res,200,{success:true,expectedCash:expected/100,countedCash:counted/100,difference:difference/100,approvalStatus,closedAt});
   }
+
+  const cashApprovalMatch=pathname.match(/^\/api\/cash\/sessions\/(\d+)\/approve$/);
+  if(cashApprovalMatch&&method==='POST'){requireAdmin(auth);const id=positiveId(cashApprovalMatch[1],'ID de caja');const session=db.prepare("SELECT * FROM cash_sessions WHERE id=? AND status='cerrada'").get(id);if(!session)throw new HttpError(404,'Cierre de caja no encontrado.');if(session.approval_status!=='pendiente')throw new HttpError(409,'Este cierre no requiere aprobación.');db.prepare("UPDATE cash_sessions SET approval_status='aprobada',approved_by=?,approved_at=? WHERE id=?").run(auth.user.id,nowIso(),id);writeAudit(db,auth.user.id,'cash_session_approve','cash_session',id,{difference:Number(session.difference_centavos)});return sendJson(res,200,{success:true});}
 
   const cashActionMatch = pathname.match(/^\/api\/cash\/payments\/(\d+)\/(void|reprint)$/);
   if (cashActionMatch && method === 'POST') { const paymentId = positiveId(cashActionMatch[1],'ID de cobro'); const payment = db.prepare('SELECT * FROM cash_payments WHERE id=?').get(paymentId); if (!payment) throw new HttpError(404,'Cobro no encontrado.');
