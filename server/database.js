@@ -176,6 +176,12 @@ function openDatabase(filename) {
         created_at TEXT NOT NULL
       ) STRICT;
       CREATE INDEX IF NOT EXISTS idx_clinical_attachments_patient ON clinical_attachments(patient_id, created_at);
+      CREATE TABLE IF NOT EXISTS clinical_signatures (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, patient_id INTEGER NOT NULL REFERENCES pacientes(id) ON DELETE CASCADE,
+        signer_type TEXT NOT NULL CHECK(signer_type IN ('paciente','responsable','personal')), signer_name TEXT NOT NULL,
+        image BLOB NOT NULL, created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, created_by_name TEXT NOT NULL, created_at TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS idx_clinical_signatures_patient ON clinical_signatures(patient_id, created_at);
       CREATE TABLE IF NOT EXISTS catalog_prices (
         catalog_id INTEGER NOT NULL REFERENCES catalogo(id) ON DELETE CASCADE,
         insurance_id INTEGER NOT NULL REFERENCES insurers(id) ON DELETE CASCADE,
@@ -208,6 +214,10 @@ function openDatabase(filename) {
     if (!cashSessionColumns.has('approval_status')) db.exec("ALTER TABLE cash_sessions ADD COLUMN approval_status TEXT NOT NULL DEFAULT 'no_requerida'");
     if (!cashSessionColumns.has('approved_by')) db.exec('ALTER TABLE cash_sessions ADD COLUMN approved_by INTEGER REFERENCES users(id)');
     if (!cashSessionColumns.has('approved_at')) db.exec('ALTER TABLE cash_sessions ADD COLUMN approved_at TEXT');
+    const attachmentColumns = new Set(db.prepare('PRAGMA table_info(clinical_attachments)').all().map(column => column.name));
+    if (!attachmentColumns.has('category')) db.exec("ALTER TABLE clinical_attachments ADD COLUMN category TEXT NOT NULL DEFAULT 'otro'");
+    if (!attachmentColumns.has('description')) db.exec("ALTER TABLE clinical_attachments ADD COLUMN description TEXT NOT NULL DEFAULT ''");
+    if (!attachmentColumns.has('document_date')) db.exec("ALTER TABLE clinical_attachments ADD COLUMN document_date TEXT NOT NULL DEFAULT ''");
     db.exec('UPDATE cash_payments SET patient_paid_centavos = amount_centavos WHERE patient_paid_centavos = 0 AND insurance_covered_centavos = 0');
     db.exec('UPDATE cash_payments SET amount_received_centavos = patient_paid_centavos WHERE amount_received_centavos = 0');
     db.exec(`INSERT INTO cash_payment_lines (cash_payment_id, method, amount_centavos, reference_number)

@@ -100,11 +100,15 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del cat�
   const patient = await f.request('/api/pacientes', 'POST', { nombre: 'Paciente', apellido: 'Prueba' }, sessions.secretaria);
   assert.equal(patient.status, 201);
   const patientId = patient.data.id;
-  const upload = await fetch(`${f.url}/api/pacientes/${patientId}/adjuntos`, { method: 'POST', headers: { Cookie: sessions.doctor, 'Content-Type': 'image/png', 'X-File-Name': encodeURIComponent('panorámica inicial.png') }, body: Buffer.from([137, 80, 78, 71]) });
+  const upload = await fetch(`${f.url}/api/pacientes/${patientId}/adjuntos`, { method: 'POST', headers: { Cookie: sessions.doctor, 'Content-Type': 'image/png', 'X-File-Name': encodeURIComponent('panorámica inicial.png'), 'X-Document-Category': 'panoramica', 'X-Document-Description': encodeURIComponent('Imagen inicial'), 'X-Document-Date': '2026-09-14' }, body: Buffer.from([137, 80, 78, 71]) });
   assert.equal(upload.status, 201);
   const attachment = await upload.json();
   assert.equal(attachment.filename, 'panorámica inicial.png');
-  assert.equal((await f.request(`/api/pacientes/${patientId}/adjuntos`, 'GET', undefined, sessions.secretaria)).data.length, 1);
+  assert.equal(attachment.category, 'panoramica');
+  assert.equal((await f.request(`/api/pacientes/${patientId}/adjuntos`, 'GET', undefined, sessions.secretaria)).data[0].description, 'Imagen inicial');
+  const signature = await f.request(`/api/pacientes/${patientId}/firmas`, 'POST', { signerType: 'paciente', signerName: 'Paciente de prueba', image: `data:image/png;base64,${Buffer.alloc(200,1).toString('base64')}` }, sessions.doctor);
+  assert.equal(signature.status, 201);
+  assert.equal((await f.request(`/api/pacientes/${patientId}/firmas`, 'GET', undefined, sessions.secretaria)).data[0].signerName, 'Paciente de prueba');
   const downloaded = await fetch(`${f.url}/api/adjuntos/${attachment.id}`, { headers: { Cookie: sessions.secretaria } });
   assert.equal(downloaded.status, 200);
   assert.deepEqual(Buffer.from(await downloaded.arrayBuffer()), Buffer.from([137, 80, 78, 71]));

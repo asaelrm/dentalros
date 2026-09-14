@@ -115,12 +115,12 @@ class OdontoDB {
     return this.api.request(`/api/pacientes/${Number(pacienteId)}/adjuntos`);
   }
 
-  async uploadAdjunto(pacienteId, file) {
+  async uploadAdjunto(pacienteId, file, metadata = {}) {
     const extensionTypes = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', pdf: 'application/pdf', doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' };
     const extension = file.name.split('.').pop().toLowerCase();
     const response = await fetch(`/api/pacientes/${Number(pacienteId)}/adjuntos`, {
       method: 'POST', credentials: 'same-origin',
-      headers: { 'Content-Type': file.type || extensionTypes[extension] || 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name) },
+      headers: { 'Content-Type': file.type || extensionTypes[extension] || 'application/octet-stream', 'X-File-Name': encodeURIComponent(file.name), 'X-Document-Category': metadata.category || 'otro', 'X-Document-Description': encodeURIComponent(metadata.description || ''), 'X-Document-Date': metadata.documentDate || '' },
       body: file
     });
     const payload = await response.json();
@@ -133,6 +133,8 @@ class OdontoDB {
   }
 
   getAdjuntoUrl(id) { return `/api/adjuntos/${Number(id)}`; }
+  async getFirmas(pacienteId) { return this.api.request(`/api/pacientes/${Number(pacienteId)}/firmas`); }
+  async saveFirma(pacienteId, data) { return this.api.request(`/api/pacientes/${Number(pacienteId)}/firmas`, { method: 'POST', body: data }); }
 
   async getConsultas(pacienteId) {
     return this.api.request(`/api/pacientes/${Number(pacienteId)}/consultas`);

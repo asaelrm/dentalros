@@ -720,8 +720,8 @@ function isKnownProtectedPath(pathname) {
     pathname === '/api/catalogo' || /^\/api\/catalogo\/\d+$/.test(pathname) || pathname === '/api/tarifarios' ||
     /^\/api\/users\/\d+(?:\/reset-password)?$/.test(pathname) ||
     pathname === '/api/pacientes' ||
-    /^\/api\/pacientes\/\d+(?:\/(?:historia|consultas|odontograma|adjuntos))?$/.test(pathname) ||
-    /^\/api\/adjuntos\/\d+$/.test(pathname) ||
+    /^\/api\/pacientes\/\d+(?:\/(?:historia|consultas|odontograma|adjuntos|firmas))?$/.test(pathname) ||
+    /^\/api\/(?:adjuntos|firmas)\/\d+$/.test(pathname) ||
     /^\/api\/consultas\/\d+$/.test(pathname) ||
     /^\/api\/consultas\/\d+\/factura(?:\/(?:cerrar|reabrir|anular))?$/.test(pathname) ||
     pathname === '/api/config' ||
@@ -1426,10 +1426,15 @@ async function handleApi(req, res, pathname, context) {
   if (patientAttachmentsMatch && method === 'GET') {
     const patientId = positiveId(patientAttachmentsMatch[1], 'ID de paciente');
     ensurePatient(db, patientId);
-    const items = db.prepare(`SELECT id, patient_id, filename, mime_type, size_bytes, uploaded_by_name, created_at
+    const items = db.prepare(`SELECT id, patient_id, filename, mime_type, size_bytes, uploaded_by_name, created_at, category, description, document_date
       FROM clinical_attachments WHERE patient_id = ? ORDER BY created_at DESC, id DESC`).all(patientId);
-    return sendJson(res, 200, items.map(item => ({ id: Number(item.id), patientId: Number(item.patient_id), filename: item.filename, mimeType: item.mime_type, sizeBytes: Number(item.size_bytes), uploadedByName: item.uploaded_by_name, createdAt: item.created_at })));
+    return sendJson(res, 200, items.map(item => ({ id: Number(item.id), patientId: Number(item.patient_id), filename: item.filename, mimeType: item.mime_type, sizeBytes: Number(item.size_bytes), uploadedByName: item.uploaded_by_name, createdAt: item.created_at, category: item.category, description: item.description, documentDate: item.document_date })));
   }
+
+  const patientSignaturesMatch = pathname.match(/^\/api\/pacientes\/(\d+)\/firmas$/);
+  if (patientSignaturesMatch && method === 'GET') { const patientId=positiveId(patientSignaturesMatch[1],'ID de paciente'); ensurePatient(db,patientId); const rows=db.prepare('SELECT id,patient_id,signer_type,signer_name,created_by_name,created_at FROM clinical_signatures WHERE patient_id=? ORDER BY id DESC').all(patientId); return sendJson(res,200,rows.map(row=>({id:Number(row.id),patientId:Number(row.patient_id),signerType:row.signer_type,signerName:row.signer_name,createdByName:row.created_by_name,createdAt:row.created_at,imageUrl:`/api/firmas/${row.id}`}))); }
+  if (patientSignaturesMatch && method === 'POST') { requireRole(auth,CLINICAL_WRITERS); const patientId=positiveId(patientSignaturesMatch[1],'ID de paciente'); ensurePatient(db,patientId); const body=requireObject(await readJsonBody(req,bodyLimit)); const signerType=String(body.signerType||'paciente'); if(!['paciente','responsable','personal'].includes(signerType)) throw new HttpError(400,'Tipo de firmante inválido.'); const signerName=String(body.signerName||'').trim(); if(signerName.length<2||signerName.length>150) throw new HttpError(400,'Indica el nombre del firmante.'); const imageMatch=String(body.image||'').match(/^data:image\/png;base64,([A-Za-z0-9+/=]+)$/); if(!imageMatch) throw new HttpError(400,'La firma no tiene un formato válido.'); const image=Buffer.from(imageMatch[1],'base64'); if(image.length<100||image.length>500000) throw new HttpError(400,'La firma está vacía o excede 500 KB.'); const createdAt=nowIso(); const id=Number(db.prepare('INSERT INTO clinical_signatures(patient_id,signer_type,signer_name,image,created_by,created_by_name,created_at) VALUES(?,?,?,?,?,?,?)').run(patientId,signerType,signerName,image,auth.user.id,auth.user.displayName,createdAt).lastInsertRowid); writeAudit(db,auth.user.id,'clinical_signature_create','clinical_signature',id,{patientId,signerType,signerName}); return sendJson(res,201,{id,patientId,signerType,signerName,createdByName:auth.user.displayName,createdAt,imageUrl:`/api/firmas/${id}`}); }
+  const signatureMatch=pathname.match(/^\/api\/firmas\/(\d+)$/); if(signatureMatch&&method==='GET'){const id=positiveId(signatureMatch[1],'ID de firma'); const row=db.prepare('SELECT image FROM clinical_signatures WHERE id=?').get(id); if(!row) throw new HttpError(404,'Firma no encontrada.'); res.statusCode=200;res.setHeader('Content-Type','image/png');res.setHeader('Content-Length',row.image.length);return res.end(row.image);}
   if (patientAttachmentsMatch && method === 'POST') {
     requireRole(auth, CLINICAL_WRITERS);
     const patientId = positiveId(patientAttachmentsMatch[1], 'ID de paciente');
@@ -1442,12 +1447,15 @@ async function handleApi(req, res, pathname, context) {
     const allowedTypes = new Set(['image/jpeg', 'image/png', 'image/webp', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']);
     if (!allowedTypes.has(mimeType)) throw new HttpError(415, 'Formato no permitido. Usa JPG, PNG, WEBP, PDF, DOC o DOCX.');
     const content = await readBinaryBody(req, ATTACHMENT_LIMIT);
+    const category = String(req.headers['x-document-category'] || 'otro').trim(); const allowedCategories = new Set(['panoramica','radiografia','receta','laboratorio','autorizacion','consentimiento','otro']); if (!allowedCategories.has(category)) throw new HttpError(400, 'La categoría del documento no es válida.');
+    let description; try { description = decodeURIComponent(String(req.headers['x-document-description'] || '')).trim().slice(0,300); } catch { throw new HttpError(400,'La descripción no es válida.'); }
+    const documentDate = String(req.headers['x-document-date'] || '').trim(); if (documentDate && !/^\d{4}-\d{2}-\d{2}$/.test(documentDate)) throw new HttpError(400,'La fecha del documento no es válida.');
     const createdAt = nowIso();
     const id = Number(db.prepare(`INSERT INTO clinical_attachments
-      (patient_id, filename, mime_type, size_bytes, content, uploaded_by, uploaded_by_name, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(patientId, filename, mimeType, content.length, content, auth.user.id, auth.user.displayName, createdAt).lastInsertRowid);
-    writeAudit(db, auth.user.id, 'attachment_create', 'clinical_attachment', id, { patientId, filename, sizeBytes: content.length });
-    return sendJson(res, 201, { id, patientId, filename, mimeType, sizeBytes: content.length, uploadedByName: auth.user.displayName, createdAt });
+      (patient_id, filename, mime_type, size_bytes, content, uploaded_by, uploaded_by_name, created_at, category, description, document_date)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(patientId, filename, mimeType, content.length, content, auth.user.id, auth.user.displayName, createdAt, category, description, documentDate).lastInsertRowid);
+    writeAudit(db, auth.user.id, 'attachment_create', 'clinical_attachment', id, { patientId, filename, category, sizeBytes: content.length });
+    return sendJson(res, 201, { id, patientId, filename, mimeType, sizeBytes: content.length, uploadedByName: auth.user.displayName, createdAt, category, description, documentDate });
   }
 
   const attachmentMatch = pathname.match(/^\/api\/adjuntos\/(\d+)$/);

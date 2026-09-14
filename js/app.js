@@ -9,6 +9,7 @@ class OdontoApp {
     this.currentPaciente = null;
     this.currentHistoria = null;
     this.currentAttachments = [];
+    this.currentSignatures = [];
     this.currentConsultas = [];
     this.currentOdontograma = null;
     this.insurers = [];
@@ -103,6 +104,7 @@ class OdontoApp {
     }
     const attachmentLabel = document.getElementById('label-upload-attachment');
     if (attachmentLabel) attachmentLabel.hidden = !canEdit;
+    for (const id of ['signature-type','signature-name','signature-pad','btn-clear-signature','btn-save-signature']) { const control=document.getElementById(id); if(control) control.hidden=!canEdit; }
 
     const saveStatus = document.getElementById('odontograma-save-status');
     if (saveStatus) saveStatus.textContent = canEdit ? 'Guardado automático' : 'Modo solo lectura';
@@ -245,6 +247,7 @@ class OdontoApp {
 
     this.currentConsultas = await window.odontoDB.getConsultas(id);
     this.currentAttachments = await window.odontoDB.getAdjuntos(id);
+    this.currentSignatures = await window.odontoDB.getFirmas(id);
     this.currentOdontograma = await window.odontoDB.getOdontograma(id) || {
       pacienteId: id,
       piezas: {},
@@ -255,6 +258,7 @@ class OdontoApp {
     this.renderPacienteHeader();
     this.renderHistoriaClinicaForm();
     this.renderClinicalAttachments();
+    this.renderClinicalSignatures();
     this.renderConsultasTimeline();
     this.renderFacturas();
     
@@ -361,8 +365,8 @@ class OdontoApp {
       const size = item.sizeBytes < 1048576 ? `${Math.ceil(item.sizeBytes / 1024)} KB` : `${(item.sizeBytes / 1048576).toFixed(1)} MB`;
       return `<article class="overflow-hidden rounded-2xl border border-rose-200 bg-white shadow-sm">
         ${isImage ? `<a href="${url}" target="_blank" rel="noopener"><img src="${url}" alt="${escape(item.filename)}" class="w-full h-36 object-cover bg-slate-100"></a>` : `<a href="${url}" target="_blank" rel="noopener" class="h-36 flex items-center justify-center bg-rose-50 text-5xl">📄</a>`}
-        <div class="p-3"><p class="font-black text-sm text-rose-950 truncate" title="${escape(item.filename)}">${escape(item.filename)}</p>
-        <p class="text-[11px] text-slate-500 mt-1">${size} · ${escape(item.uploadedByName)}</p>
+        <div class="p-3"><span class="text-[10px] uppercase font-black text-rose-700">${escape(item.category || 'otro')}</span><p class="font-black text-sm text-rose-950 truncate" title="${escape(item.filename)}">${escape(item.filename)}</p>${item.description ? `<p class="text-xs mt-1">${escape(item.description)}</p>` : ''}
+        <p class="text-[11px] text-slate-500 mt-1">${item.documentDate ? escape(item.documentDate) + ' · ' : ''}${size} · ${escape(item.uploadedByName)}</p>
         <div class="flex gap-2 mt-3"><a href="${url}" target="_blank" rel="noopener" class="secondary-button flex-1 text-center">Abrir</a>${this.canEdit() ? `<button type="button" class="btn-delete-attachment secondary-button text-rose-700" data-id="${Number(item.id)}">Eliminar</button>` : ''}</div></div>
       </article>`;
     }).join('');
@@ -375,6 +379,23 @@ class OdontoApp {
         this.showToast('Archivo eliminado del expediente.');
       } catch (error) { this.showToast(error.message, 'error'); }
     }));
+  }
+
+  renderClinicalSignatures() {
+    const list = document.getElementById('clinical-signatures-list'); if (!list) return;
+    const escape = window.escapeHTML;
+    list.innerHTML = this.currentSignatures.length ? this.currentSignatures.map(item => `<article class="p-3 border border-rose-200 rounded-xl bg-rose-50"><img src="${item.imageUrl}" alt="Firma de ${escape(item.signerName)}" class="h-20 w-full object-contain bg-white rounded"><b class="block mt-2">${escape(item.signerName)}</b><small>${escape(item.signerType)} · ${new Date(item.createdAt).toLocaleString('es-DO')}</small></article>`).join('') : '<p class="text-xs text-slate-500">No hay firmas registradas.</p>';
+  }
+
+  setupSignaturePad() {
+    const canvas = document.getElementById('signature-pad'); if (!canvas || canvas.dataset.ready) return; canvas.dataset.ready = 'true';
+    const context = canvas.getContext('2d'); context.lineWidth = 2.5; context.lineCap = 'round'; context.strokeStyle = '#881337'; let drawing = false; let hasInk = false;
+    const point = event => { const rect = canvas.getBoundingClientRect(); return { x: (event.clientX - rect.left) * canvas.width / rect.width, y: (event.clientY - rect.top) * canvas.height / rect.height }; };
+    canvas.addEventListener('pointerdown', event => { drawing = true; hasInk = true; canvas.setPointerCapture(event.pointerId); const p = point(event); context.beginPath(); context.moveTo(p.x,p.y); });
+    canvas.addEventListener('pointermove', event => { if (!drawing) return; const p=point(event); context.lineTo(p.x,p.y); context.stroke(); });
+    canvas.addEventListener('pointerup', () => { drawing=false; }); canvas.addEventListener('pointercancel',()=>{drawing=false;});
+    document.getElementById('btn-clear-signature').addEventListener('click',()=>{context.clearRect(0,0,canvas.width,canvas.height);hasInk=false;});
+    document.getElementById('btn-save-signature').addEventListener('click',async()=>{if(!this.currentPacienteId||!hasInk)return this.showToast('Dibuja la firma antes de guardarla.','error'); const signerName=document.getElementById('signature-name').value.trim(); try{await window.odontoDB.saveFirma(this.currentPacienteId,{signerType:document.getElementById('signature-type').value,signerName,image:canvas.toDataURL('image/png')});this.currentSignatures=await window.odontoDB.getFirmas(this.currentPacienteId);this.renderClinicalSignatures();context.clearRect(0,0,canvas.width,canvas.height);hasInk=false;document.getElementById('signature-name').value='';this.showToast('Firma guardada en el expediente.');}catch(error){this.showToast(error.message,'error');}});
   }
 
   renderConsultasTimeline() {
@@ -690,7 +711,7 @@ class OdontoApp {
       const status = document.getElementById('attachment-status');
       try {
         if (status) status.textContent = `Subiendo ${file.name}...`;
-        await window.odontoDB.uploadAdjunto(this.currentPacienteId, file);
+        await window.odontoDB.uploadAdjunto(this.currentPacienteId, file, { category: document.getElementById('attachment-category').value, description: document.getElementById('attachment-description').value.trim(), documentDate: document.getElementById('attachment-date').value });
         this.currentAttachments = await window.odontoDB.getAdjuntos(this.currentPacienteId);
         this.renderClinicalAttachments();
         if (status) status.textContent = '';
@@ -700,6 +721,7 @@ class OdontoApp {
         this.showToast(error.message, 'error');
       } finally { attachmentInput.value = ''; }
     });
+    this.setupSignaturePad();
 
     // 7. Botón Nueva Consulta (Abre Modal)
     const btnNuevaConsulta = document.getElementById('btn-nueva-consulta');
