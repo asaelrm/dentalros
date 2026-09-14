@@ -132,6 +132,11 @@ function openDatabase(filename) {
         tipo TEXT PRIMARY KEY CHECK (tipo IN ('diagnostico', 'procedimiento')),
         next_value INTEGER NOT NULL CHECK (next_value > 0)
       ) STRICT;
+      CREATE TABLE IF NOT EXISTS credit_notes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, number TEXT NOT NULL UNIQUE, consultation_id INTEGER NOT NULL UNIQUE REFERENCES consultas(id) ON DELETE RESTRICT,
+        amount_centavos INTEGER NOT NULL CHECK(amount_centavos >= 0), reason TEXT NOT NULL, created_by INTEGER REFERENCES users(id), created_by_name TEXT NOT NULL, created_at TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS document_sequences (document_type TEXT NOT NULL, year INTEGER NOT NULL, next_value INTEGER NOT NULL CHECK(next_value > 0), PRIMARY KEY(document_type, year)) STRICT;
       CREATE TABLE IF NOT EXISTS cash_payments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         consultation_id INTEGER NOT NULL UNIQUE REFERENCES consultas(id) ON DELETE RESTRICT,

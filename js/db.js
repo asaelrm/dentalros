@@ -163,6 +163,7 @@ class OdontoDB {
   async reopenFactura(consultaId) {
     return this.api.request(`/api/consultas/${Number(consultaId)}/factura/reabrir`, { method: 'POST', body: {} });
   }
+  async voidFactura(consultaId, reason) { return this.api.request(`/api/consultas/${Number(consultaId)}/factura/anular`, { method: 'POST', body: { reason } }); }
 
   async getOdontograma(pacienteId) {
     return this.api.request(`/api/pacientes/${Number(pacienteId)}/odontograma`);

@@ -481,7 +481,7 @@ class OdontoApp {
         <div>
           <p class="text-xs text-slate-500">Consulta del ${escape(consultation.fecha || 'sin fecha')}</p>
           <h4 class="font-black text-rose-950 mt-1">${invoice ? escape(invoice.diagnostico) : 'Factura pendiente de preparar'}</h4>
-          <span class="invoice-status invoice-status-${status}">${status === 'cerrada' ? 'Cerrada' : status === 'abierta' ? 'Borrador abierto' : 'Pendiente'}</span>
+          <span class="invoice-status invoice-status-${status}">${status === 'anulada' ? 'Anulada' : status === 'cerrada' ? 'Cerrada' : status === 'abierta' ? 'Borrador abierto' : 'Pendiente'}</span>
         </div>
         <div class="text-right">
           <strong class="block text-xl text-emerald-800">${invoice ? `$${Number(invoice.total).toFixed(2)}` : '—'}</strong>
@@ -765,6 +765,7 @@ class OdontoApp {
     formFactura?.addEventListener('submit', event => this.saveFactura(event));
     document.getElementById('btn-finalize-factura')?.addEventListener('click', () => this.finalizeFactura());
     document.getElementById('btn-reopen-factura')?.addEventListener('click', () => this.reopenFactura());
+    document.getElementById('btn-void-factura')?.addEventListener('click', () => this.voidFactura());
     document.getElementById('btn-download-factura')?.addEventListener('click', () => this.downloadFacturaPDF());
     document.getElementById('btn-close-factura-modal')?.addEventListener('click', () => this.closeModal('modal-factura'));
     document.getElementById('btn-close-factura-preview')?.addEventListener('click', () => this.closeModal('modal-factura-preview'));
@@ -1025,16 +1026,17 @@ class OdontoApp {
     form.consultaId.value = String(consulta.id);
     form.diagnostico.value = factura?.diagnostico || consulta.diagnostico || '';
     await window.catalogManager.prepareInvoice(factura);
-    const closed = factura?.estado === 'cerrada';
-    const canWrite = window.authManager.hasPermission('invoice.write') && !closed;
+    const closed = factura?.estado === 'cerrada'; const voided = factura?.estado === 'anulada';
+    const canWrite = window.authManager.hasPermission('invoice.write') && !closed && !voided;
     form.diagnostico.readOnly = !canWrite;
     document.getElementById('btn-add-procedimiento').hidden = !canWrite;
     document.getElementById('btn-save-factura').hidden = !canWrite;
     document.getElementById('btn-finalize-factura').hidden = !canWrite;
     document.getElementById('btn-reopen-factura').hidden = !closed || !window.authManager.hasPermission('invoice.reopen');
+    document.getElementById('btn-void-factura').hidden = !closed || !window.authManager.hasPermission('invoice.reopen');
     document.getElementById('btn-download-factura').hidden = !factura;
-    document.getElementById('factura-title').textContent = closed ? 'Factura cerrada' : (factura ? 'Factura abierta' : 'Nueva factura');
-    document.getElementById('factura-message').textContent = closed ? 'Esta factura está bloqueada. Solo el administrador puede reabrirla.' : '';
+    document.getElementById('factura-title').textContent = voided ? 'Factura anulada' : closed ? 'Factura cerrada' : (factura ? 'Factura abierta' : 'Nueva factura');
+    document.getElementById('factura-message').textContent = voided ? `Anulada · ${factura.notaCredito || ''} · ${factura.motivoAnulacion || ''}` : closed ? 'Esta factura está bloqueada. Solo el administrador puede reabrirla.' : '';
     document.querySelectorAll('#factura-procedimientos input, #factura-procedimientos select, #factura-procedimientos button').forEach(control => {
       if (!canWrite) control.disabled = true;
     });
@@ -1092,6 +1094,8 @@ class OdontoApp {
       this.showToast('Factura reabierta por el administrador.');
     } catch (error) { this.showToast(error.message, 'error'); }
   }
+
+  async voidFactura() { const consultaId = Number(document.getElementById('form-factura').consultaId.value); const reason = prompt('Motivo de anulación de la factura:'); if (reason === null) return; try { const saved = await window.odontoDB.voidFactura(consultaId, reason); this.currentConsultas = this.currentConsultas.map(item => item.id === consultaId ? saved : item); this.renderConsultasTimeline(); this.renderFacturas(); await this.openFacturaModal(consultaId); this.showToast(`Factura anulada. Nota de crédito ${saved.factura.notaCredito}`); } catch(error) { this.showToast(error.message,'error'); } }
 
   async downloadFacturaPDF() {
     const consultaId = Number(document.getElementById('form-factura').consultaId.value);

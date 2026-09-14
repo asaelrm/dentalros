@@ -650,7 +650,7 @@ function normalizeBackup(body) {
     if (item.data.factura !== undefined) {
       const invoice = requireObject(item.data.factura, 'Una factura del respaldo');
       if (typeof invoice.diagnostico !== 'string' || !invoice.diagnostico.trim() || invoice.diagnostico.length > 1000) throw new HttpError(400, 'Una factura contiene un diagnóstico inválido.');
-      if (!['abierta', 'cerrada'].includes(invoice.estado)) throw new HttpError(400, 'Una factura contiene un estado inválido.');
+      if (!['abierta', 'cerrada', 'anulada'].includes(invoice.estado)) throw new HttpError(400, 'Una factura contiene un estado inválido.');
       billing.validateSnapshot(invoice.procedimientos);
       invoice.total = billing.total(invoice.procedimientos);
       if (invoice.estado === 'cerrada' && typeof invoice.cerradaEn !== 'string') throw new HttpError(400, 'Una factura cerrada no tiene fecha de cierre válida.');
@@ -664,6 +664,7 @@ function importBackup(db, backup, actorId) {
     db.exec(`
       DELETE FROM cash_payment_lines;
       DELETE FROM cash_payments;
+      DELETE FROM credit_notes;
       DELETE FROM odontogramas;
       DELETE FROM consultas;
       DELETE FROM historias;
@@ -722,7 +723,7 @@ function isKnownProtectedPath(pathname) {
     /^\/api\/pacientes\/\d+(?:\/(?:historia|consultas|odontograma|adjuntos))?$/.test(pathname) ||
     /^\/api\/adjuntos\/\d+$/.test(pathname) ||
     /^\/api\/consultas\/\d+$/.test(pathname) ||
-    /^\/api\/consultas\/\d+\/factura(?:\/(?:cerrar|reabrir))?$/.test(pathname) ||
+    /^\/api\/consultas\/\d+\/factura(?:\/(?:cerrar|reabrir|anular))?$/.test(pathname) ||
     pathname === '/api/config' ||
     pathname === '/api/backup' ||
     pathname === '/api/backup/import';
@@ -1517,7 +1518,7 @@ async function handleApi(req, res, pathname, context) {
     }, auth.user));
   }
 
-  const invoiceMatch = pathname.match(/^\/api\/consultas\/(\d+)\/factura(?:\/(cerrar|reabrir))?$/);
+  const invoiceMatch = pathname.match(/^\/api\/consultas\/(\d+)\/factura(?:\/(cerrar|reabrir|anular))?$/);
   if (invoiceMatch) {
     const consultationId = positiveId(invoiceMatch[1], 'ID de consulta');
     const row = db.prepare('SELECT id, paciente_id, data FROM consultas WHERE id = ?').get(consultationId);
@@ -1527,7 +1528,7 @@ async function handleApi(req, res, pathname, context) {
 
     if (!action && method === 'PUT') {
       requirePermission(auth, 'invoice.write');
-      if (consultation.factura?.estado === 'cerrada') throw new HttpError(409, 'La factura está cerrada. Solo un administrador puede reabrirla.');
+      if (consultation.factura && consultation.factura.estado !== 'abierta') throw new HttpError(409, 'La factura está cerrada o anulada y no puede modificarse.');
       const factura = invoiceFromInput(db, auth, await readJsonBody(req, bodyLimit), consultation.factura, Number(row.paciente_id));
       consultation.factura = factura;
       runTransaction(db, () => {
@@ -1564,6 +1565,23 @@ async function handleApi(req, res, pathname, context) {
         writeAudit(db, auth.user.id, 'invoice_reopen', 'consulta', consultationId);
       });
       return sendJson(res, 200, { ...consultation, id: consultationId, pacienteId: Number(row.paciente_id) });
+    }
+
+    if (action === 'anular' && method === 'POST') {
+      requirePermission(auth, 'invoice.reopen');
+      if (!consultation.factura || consultation.factura.estado !== 'cerrada') throw new HttpError(409, 'Solo se puede anular una factura cerrada.');
+      if (db.prepare("SELECT 1 FROM cash_payments WHERE consultation_id=? AND status='pagado'").get(consultationId)) throw new HttpError(409, 'Primero anula todos los cobros activos de esta factura.');
+      const body = requireObject(await readJsonBody(req, bodyLimit)); const reason = String(body.reason || '').trim(); if (reason.length < 5 || reason.length > 500) throw new HttpError(400, 'Indica un motivo de anulación de 5 a 500 caracteres.');
+      const createdAt = nowIso(); const year = Number(createdAt.slice(0,4)); let creditNumber;
+      runTransaction(db, () => {
+        db.prepare("INSERT OR IGNORE INTO document_sequences(document_type,year,next_value) VALUES('nota_credito',?,1)").run(year);
+        const sequence = db.prepare("SELECT next_value FROM document_sequences WHERE document_type='nota_credito' AND year=?").get(year).next_value;
+        creditNumber = `NCE-${year}-${String(sequence).padStart(6,'0')}`; db.prepare("UPDATE document_sequences SET next_value=next_value+1 WHERE document_type='nota_credito' AND year=?").run(year);
+        db.prepare('INSERT INTO credit_notes(number,consultation_id,amount_centavos,reason,created_by,created_by_name,created_at) VALUES(?,?,?,?,?,?,?)').run(creditNumber,consultationId,Math.round(Number(consultation.factura.total)*100),reason,auth.user.id,auth.user.displayName,createdAt);
+        consultation.factura.estado='anulada'; consultation.factura.anuladaEn=createdAt; consultation.factura.anuladaPor=auth.user.displayName; consultation.factura.motivoAnulacion=reason; consultation.factura.notaCredito=creditNumber;
+        db.prepare('UPDATE consultas SET data=? WHERE id=?').run(JSON.stringify(consultation),consultationId); writeAudit(db,auth.user.id,'invoice_void','consulta',consultationId,{reason,creditNumber});
+      });
+      return sendJson(res,200,{...consultation,id:consultationId,pacienteId:Number(row.paciente_id)});
     }
   }
 

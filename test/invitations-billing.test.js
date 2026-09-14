@@ -205,6 +205,10 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del cat√
   assert.equal(closed.data.difference, 0);
   assert.equal((await f.request(`/api/cash/payments/${charge.data.id}/void`, 'POST', {}, f.admin)).status, 200);
   assert.equal((await f.request(`/api/cash/payments/${finalCharge.data.id}/void`, 'POST', {}, f.admin)).status, 200);
+  const voidInvoice = await f.request(`${invoicePath}/anular`, 'POST', { reason: 'Correcci√≥n administrativa de prueba' }, f.admin);
+  assert.equal(voidInvoice.status, 200);
+  assert.match(voidInvoice.data.factura.notaCredito, /^NCE-\d{4}-000001$/);
+  assert.equal(voidInvoice.data.factura.estado, 'anulada');
   const afterVoid = await f.request(`/api/cash?from=${today}&to=${today}`, 'GET', undefined, f.admin);
   assert.equal(afterVoid.data.total, 0);
   assert.equal(afterVoid.data.voidTotal, 45);
