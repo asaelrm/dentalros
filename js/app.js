@@ -1238,7 +1238,21 @@ class OdontoApp {
   }
 
   async openCashSession() { const registerNumber = prompt('Nombre o número de caja:', 'Caja 1'); if (registerNumber === null) return; const openingCash = prompt('Fondo inicial en efectivo:', '0'); if (openingCash === null) return; try { await window.odontoDB.openCashSession({registerNumber,openingCash:Number(openingCash)}); this.showToast('Caja abierta correctamente.'); await this.loadCash(); } catch(error) { this.showToast(error.message,'error'); } }
-  async closeCashSession() { const countedCash = prompt('Efectivo contado al cerrar:'); if (countedCash === null) return; try { const result = await window.odontoDB.closeCashSession(Number(countedCash)); this.showToast(`Caja cerrada. Diferencia: $${Number(result.difference).toFixed(2)}`); await this.loadCash(); } catch(error) { this.showToast(error.message,'error'); } }
+  async closeCashSession() {
+    const countedCash = prompt('Efectivo contado al cerrar:');
+    if (countedCash === null) return;
+    if (!/^\d+(?:\.\d{1,2})?$/.test(countedCash.trim())) return this.showToast('Indica un monto de efectivo válido.', 'error');
+    const notes = prompt('Observaciones del cierre (opcional):') ?? '';
+    const denominationsText = prompt('Desglose de efectivo (opcional). Ejemplo: 1000=2, 500=3, 100=5') ?? '';
+    const denominations = {};
+    for (const part of denominationsText.split(',')) {
+      const [value, quantity] = part.split('=').map(item => item?.trim());
+      if (!value && !quantity) continue;
+      if (!/^\d+(?:\.\d{1,2})?$/.test(value || '') || !/^\d+$/.test(quantity || '')) return this.showToast('El desglose debe usar el formato 1000=2, 500=3.', 'error');
+      denominations[value] = Number(quantity);
+    }
+    try { const result = await window.odontoDB.closeCashSession({ countedCash: Number(countedCash), notes, denominations }); this.showToast(`Caja cerrada. Diferencia: $${Number(result.difference).toFixed(2)}${result.approvalStatus === 'pendiente' ? ' · Requiere aprobación.' : ''}`); await this.loadCash(); } catch(error) { this.showToast(error.message,'error'); }
+  }
 
   async chargeCash(card) {
     const button = card.querySelector('.cash-charge'); button.disabled = true;

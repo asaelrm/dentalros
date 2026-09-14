@@ -76,7 +76,7 @@ class OdontoDB {
   async createInsurer(nombre) { return this.api.request('/api/insurers', { method: 'POST', body: { nombre } }); }
   async getCashReport(from, to, filters = {}) { const params = new URLSearchParams({ from, to }); Object.entries(filters).forEach(([key,value]) => { if (value) params.set(key,value); }); return this.api.request(`/api/cash?${params}`); }
   async openCashSession(data) { return this.api.request('/api/cash/session', { method: 'POST', body: data }); }
-  async closeCashSession(countedCash) { return this.api.request('/api/cash/session/close', { method: 'POST', body: { countedCash } }); }
+  async closeCashSession(data) { return this.api.request('/api/cash/session/close', { method: 'POST', body: data }); }
   async auditVoucherReprint(id) { return this.api.request(`/api/cash/payments/${Number(id)}/reprint`, { method: 'POST', body: {} }); }
   async voidCashPayment(id) { return this.api.request(`/api/cash/payments/${Number(id)}/void`, { method: 'POST', body: {} }); }
   async chargeInvoice(consultationId, payment) { return this.api.request(`/api/consultas/${Number(consultationId)}/charge`, { method: 'POST', body: payment }); }
