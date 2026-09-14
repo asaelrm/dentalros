@@ -18,6 +18,9 @@ const DEFAULT_CONFIG = Object.freeze({
   ncfSequence: '',
   reminderChannel: '',
   publicDomain: '',
+  invoicePrefix: 'FAC',
+  receiptPrefix: 'REC',
+  creditNotePrefix: 'NCE',
   piePagina: 'DentalRos - Hacemos tu sonrisa florecer.'
 });
 

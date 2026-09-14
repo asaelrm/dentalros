@@ -131,6 +131,7 @@ class OdontoApp {
       f.email.value = this.config.email || '';
       f.direccion.value = this.config.direccion || '';
       f.piePagina.value = this.config.piePagina || '';
+      f.invoicePrefix.value = this.config.invoicePrefix || 'FAC'; f.receiptPrefix.value = this.config.receiptPrefix || 'REC'; f.creditNotePrefix.value = this.config.creditNotePrefix || 'NCE';
       f.fiscalEnabled.checked = false; f.remindersEnabled.checked = false; f.permanentPublishingEnabled.checked = false;
       f.rnc.value = this.config.rnc || ''; f.ncfSequence.value = this.config.ncfSequence || ''; f.reminderChannel.value = this.config.reminderChannel || ''; f.publicDomain.value = this.config.publicDomain || '';
     }
@@ -884,7 +885,7 @@ class OdontoApp {
           telefono: f.telefono.value.trim(),
           email: f.email.value.trim(),
           direccion: f.direccion.value.trim(),
-          piePagina: f.piePagina.value.trim(), fiscalEnabled: false, remindersEnabled: false, permanentPublishingEnabled: false,
+          piePagina: f.piePagina.value.trim(), invoicePrefix: f.invoicePrefix.value.trim().toUpperCase(), receiptPrefix: f.receiptPrefix.value.trim().toUpperCase(), creditNotePrefix: f.creditNotePrefix.value.trim().toUpperCase(), fiscalEnabled: false, remindersEnabled: false, permanentPublishingEnabled: false,
           rnc: f.rnc.value.trim(), ncfSequence: f.ncfSequence.value.trim(), reminderChannel: f.reminderChannel.value.trim(), publicDomain: f.publicDomain.value.trim()
         };
 

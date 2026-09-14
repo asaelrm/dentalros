@@ -14,7 +14,7 @@ class PDFExporter {
     const invoice = consulta?.factura;
     if (!invoice) throw new Error('La consulta no tiene una factura guardada.');
     const money = centavos => (Number(centavos || 0) / 100).toFixed(2);
-    const invoiceNumber = `FAC-${String(consulta.id).padStart(6, '0')}`;
+    const invoiceNumber = `${String(config.invoicePrefix || 'FAC').toUpperCase()}-${String(consulta.id).padStart(6, '0')}`;
     const generatedAt = new Date();
     const dateTime = value => new Date(value).toLocaleString('es-ES', { dateStyle: 'medium', timeStyle: 'short' });
     const generatedDateTime = dateTime(generatedAt);

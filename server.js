@@ -496,12 +496,13 @@ function validateConfigInput(body) {
   const data = cleanData(body, ['id']);
   validateKnownStrings(data, [
     'nombreClinica', 'nombreDoctor', 'especialidad', 'colegiatura', 'telefono',
-    'email', 'direccion', 'piePagina', 'rnc', 'ncfSequence', 'reminderChannel', 'publicDomain'
+    'email', 'direccion', 'piePagina', 'rnc', 'ncfSequence', 'reminderChannel', 'publicDomain', 'invoicePrefix', 'receiptPrefix', 'creditNotePrefix'
   ], 'configuracion');
   for (const field of ['fiscalEnabled', 'remindersEnabled', 'permanentPublishingEnabled']) {
     if (data[field] !== undefined && typeof data[field] !== 'boolean') throw new HttpError(400, `configuracion.${field} debe ser verdadero o falso.`);
     if (data[field] === true) throw new HttpError(409, 'Esta función requiere completar primero sus datos de activación.');
   }
+  for (const field of ['invoicePrefix', 'receiptPrefix', 'creditNotePrefix']) if (data[field] !== undefined && !/^[A-Za-z0-9]{1,12}$/.test(data[field])) throw new HttpError(400, `configuracion.${field} debe tener de 1 a 12 letras o números.`);
   return data;
 }
 
@@ -1643,7 +1644,7 @@ async function handleApi(req, res, pathname, context) {
       runTransaction(db, () => {
         db.prepare("INSERT OR IGNORE INTO document_sequences(document_type,year,next_value) VALUES('nota_credito',?,1)").run(year);
         const sequence = db.prepare("SELECT next_value FROM document_sequences WHERE document_type='nota_credito' AND year=?").get(year).next_value;
-        creditNumber = `NCE-${year}-${String(sequence).padStart(6,'0')}`; db.prepare("UPDATE document_sequences SET next_value=next_value+1 WHERE document_type='nota_credito' AND year=?").run(year);
+        creditNumber = `${String(getConfig(db).creditNotePrefix || 'NCE').toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,12) || 'NCE'}-${year}-${String(sequence).padStart(6,'0')}`; db.prepare("UPDATE document_sequences SET next_value=next_value+1 WHERE document_type='nota_credito' AND year=?").run(year);
         db.prepare('INSERT INTO credit_notes(number,consultation_id,amount_centavos,reason,created_by,created_by_name,created_at) VALUES(?,?,?,?,?,?,?)').run(creditNumber,consultationId,Math.round(Number(consultation.factura.total)*100),reason,auth.user.id,auth.user.displayName,createdAt);
         consultation.factura.estado='anulada'; consultation.factura.anuladaEn=createdAt; consultation.factura.anuladaPor=auth.user.displayName; consultation.factura.motivoAnulacion=reason; consultation.factura.notaCredito=creditNumber;
         db.prepare('UPDATE consultas SET data=? WHERE id=?').run(JSON.stringify(consultation),consultationId); writeAudit(db,auth.user.id,'invoice_void','consulta',consultationId,{reason,creditNumber});
