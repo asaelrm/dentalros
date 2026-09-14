@@ -715,7 +715,7 @@ function isKnownProtectedPath(pathname) {
     pathname === '/api/auth/logout' ||
     pathname === '/api/auth/change-password' ||
     pathname === '/api/users' ||
-    pathname === '/api/insurers' || pathname === '/api/backups' || pathname === '/api/dashboard' || pathname === '/api/appointments' || /^\/api\/appointments\/\d+$/.test(pathname) ||
+    pathname === '/api/insurers' || pathname === '/api/backups' || pathname === '/api/dashboard' || pathname === '/api/audit' || pathname === '/api/appointments' || /^\/api\/appointments\/\d+$/.test(pathname) ||
     pathname === '/api/cash' || /^\/api\/cash\/(?:session|session\/close|sessions\/\d+\/approve|payments\/\d+\/(?:void|reprint))$/.test(pathname) ||
     /^\/api\/consultas\/\d+\/charge$/.test(pathname) ||
     pathname === '/api/catalogo' || /^\/api\/catalogo\/\d+$/.test(pathname) || pathname === '/api/tarifarios' ||
@@ -1085,6 +1085,10 @@ async function handleApi(req, res, pathname, context) {
     const byCashier={}; for(const payment of payments) byCashier[payment.received_by_name]=(byCashier[payment.received_by_name]||0)+Number(payment.patient_paid_centavos)/100;
     const pendingApprovals=db.prepare("SELECT COUNT(*) count FROM cash_sessions WHERE approval_status='pendiente'").get().count;
     return sendJson(res,200,{todayTotal:periodTotal(today),monthTotal:periodTotal(month),outstanding,insurancePending:consultations.reduce((sum,item)=>sum+Math.max(0,Number(item.data.factura?.insuranceCovered||0)-payments.filter(p=>Number(p.consultation_id)===item.id).reduce((n,p)=>n+Number(p.insurance_covered_centavos)/100,0)),0),voidedCount:db.prepare("SELECT COUNT(*) count FROM cash_payments WHERE status='anulado'").get().count,pendingApprovals:Number(pendingApprovals),topProcedures:Object.entries(procedures).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([name,count])=>({name,count})),cashierProduction:Object.entries(byCashier).sort((a,b)=>b[1]-a[1]).map(([name,total])=>({name,total}))});
+  }
+  if (pathname === '/api/audit' && method === 'GET') {
+    requireAdmin(auth); const rows=db.prepare(`SELECT a.id,a.action,a.entity,a.entity_id,a.details,a.created_at,u.display_name user_name FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.id DESC LIMIT 100`).all();
+    return sendJson(res,200,rows.map(row=>({id:Number(row.id),action:row.action,entity:row.entity,entityId:row.entity_id,details:parseData(row.details||'{}'),createdAt:row.created_at,userName:row.user_name||'Sistema'})));
   }
   const appointmentMatch=pathname.match(/^\/api\/appointments\/(\d+)$/);
   if ((pathname==='/api/appointments'&&method==='POST')||(appointmentMatch&&method==='PUT')) {

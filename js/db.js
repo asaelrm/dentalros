@@ -69,6 +69,7 @@ class OdontoDB {
   async getInsurers() { return this.api.request('/api/insurers'); }
   async getAppointments(from,to) { return this.api.request(`/api/appointments?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`); }
   async getDashboard() { return this.api.request('/api/dashboard'); }
+  async getAudit() { return this.api.request('/api/audit'); }
   async approveCashSession(id) { return this.api.request(`/api/cash/sessions/${Number(id)}/approve`,{method:'POST',body:{}}); }
   async saveAppointment(item) { return this.api.request(item.id?`/api/appointments/${Number(item.id)}`:'/api/appointments',{method:item.id?'PUT':'POST',body:item}); }
   async createSqliteBackup() { return this.api.request('/api/backups', { method: 'POST', body: {} }); }
