@@ -524,6 +524,8 @@ function getBackup(db) {
     config: getConfig(db),
     catalogo: getCatalog(db),
     insurers: db.prepare('SELECT id, nombre, codigo, activo FROM insurers ORDER BY id').all().map(item => ({ ...item, id: Number(item.id), activo: Boolean(item.activo) })),
+    tariffs: db.prepare('SELECT catalog_id, insurance_id, price_centavos FROM catalog_prices ORDER BY catalog_id, insurance_id').all().map(item => ({ catalogId: Number(item.catalog_id), insuranceId: Number(item.insurance_id), priceCentavos: Number(item.price_centavos) })),
+    estimates: db.prepare('SELECT * FROM estimates ORDER BY id').all().map(item => ({ id: Number(item.id), patientId: Number(item.patient_id), diagnosis: item.diagnosis, lines: parseData(item.lines_json), totalCentavos: Number(item.total_centavos), status: item.status, validUntil: item.valid_until, createdByName: item.created_by_name, createdAt: item.created_at, updatedAt: item.updated_at, convertedConsultationId: item.converted_consultation_id == null ? null : Number(item.converted_consultation_id) })),
     cashPayments: db.prepare('SELECT * FROM cash_payments ORDER BY id').all().map(row => ({ id: Number(row.id), consultationId: Number(row.consultation_id), patientId: Number(row.patient_id), amountCentavos: Number(row.amount_centavos), coveragePercent: Number(row.coverage_percent || 0), insuranceCoveredCentavos: Number(row.insurance_covered_centavos || 0), patientPaidCentavos: Number(row.patient_paid_centavos ?? row.amount_centavos), amountReceivedCentavos: Number(row.amount_received_centavos ?? row.patient_paid_centavos), changeCentavos: Number(row.change_centavos || 0), paymentMethod: row.payment_method, reference: row.reference || '', receivedByName: row.received_by_name, paidAt: row.paid_at }))
   };
 }
@@ -636,6 +638,30 @@ function normalizeBackup(body) {
     const insurerIds = new Set(insurers.map(item => item.id));
     if (pacientes.some(item => item.insuranceId && !insurerIds.has(item.insuranceId))) throw new HttpError(400, 'Un paciente referencia un seguro inexistente.');
   }
+  let tariffs = [];
+  if (body.tariffs !== undefined) {
+    if (!Array.isArray(body.tariffs) || body.tariffs.length > 100000) throw new HttpError(400, 'Tarifarios inválidos en el respaldo.');
+    tariffs = body.tariffs.map(item => ({ catalogId: positiveId(item.catalogId, 'Servicio del tarifario'), insuranceId: positiveId(item.insuranceId, 'Seguro del tarifario'), priceCentavos: Number(item.priceCentavos) }));
+    if (tariffs.some(item => !Number.isSafeInteger(item.priceCentavos) || item.priceCentavos < 0)) throw new HttpError(400, 'Un precio de tarifario no es válido.');
+    ensureUnique(tariffs, item => `${item.catalogId}:${item.insuranceId}`, 'tarifarios');
+    if (catalogo && tariffs.some(item => !catalogo.some(catalog => catalog.id === item.catalogId && catalog.tipo === 'procedimiento'))) throw new HttpError(400, 'Un tarifario referencia un procedimiento inexistente.');
+    if (insurers && tariffs.some(item => !insurers.some(insurer => insurer.id === item.insuranceId))) throw new HttpError(400, 'Un tarifario referencia un seguro inexistente.');
+  }
+  let estimates = [];
+  if (body.estimates !== undefined) {
+    if (!Array.isArray(body.estimates) || body.estimates.length > 50000) throw new HttpError(400, 'Presupuestos inválidos en el respaldo.');
+    const consultationIds = new Set(consultas.map(item => item.id));
+    estimates = body.estimates.map(item => {
+      const id = positiveId(item.id, 'ID de presupuesto'); const patientId = positiveId(item.patientId, 'Paciente del presupuesto'); const lines = Array.isArray(item.lines) ? item.lines : [];
+      billing.validateSnapshot(lines); const totalCentavos = Math.round(billing.total(lines) * 100); const status = String(item.status || 'borrador');
+      if (!['borrador','aprobado','vencido','convertido'].includes(status) || !String(item.diagnosis || '').trim() || String(item.diagnosis).length > 1000) throw new HttpError(400, 'Un presupuesto no es válido.');
+      const convertedConsultationId = item.convertedConsultationId == null ? null : positiveId(item.convertedConsultationId, 'Consulta convertida');
+      if (convertedConsultationId && !consultationIds.has(convertedConsultationId)) throw new HttpError(400, 'Un presupuesto referencia una consulta inexistente.');
+      return { id, patientId, diagnosis: String(item.diagnosis).trim(), lines, totalCentavos, status, validUntil: String(item.validUntil || ''), createdByName: String(item.createdByName || 'Sistema').slice(0, 120), createdAt: String(item.createdAt || nowIso()), updatedAt: String(item.updatedAt || item.createdAt || nowIso()), convertedConsultationId };
+    });
+    ensureUnique(estimates, item => item.id, 'presupuestos');
+    if (estimates.some(item => !patientIds.has(item.patientId))) throw new HttpError(400, 'Un presupuesto referencia un paciente inexistente.');
+  }
   let cashPayments = [];
   if (body.cashPayments !== undefined) {
     if (!Array.isArray(body.cashPayments) || body.cashPayments.length > 100000) throw new HttpError(400, 'Movimientos de caja inválidos.');
@@ -658,7 +684,7 @@ function normalizeBackup(body) {
       if (invoice.estado === 'cerrada' && typeof invoice.cerradaEn !== 'string') throw new HttpError(400, 'Una factura cerrada no tiene fecha de cierre válida.');
     }
   }
-  return { pacientes, historias, consultas, odontogramas, config, catalogo, insurers, cashPayments };
+  return { pacientes, historias, consultas, odontogramas, config, catalogo, insurers, tariffs, estimates, cashPayments };
 }
 
 function importBackup(db, backup, actorId) {
@@ -667,6 +693,8 @@ function importBackup(db, backup, actorId) {
       DELETE FROM cash_payment_lines;
       DELETE FROM cash_payments;
       DELETE FROM credit_notes;
+      DELETE FROM catalog_prices;
+      DELETE FROM estimates;
       DELETE FROM odontogramas;
       DELETE FROM consultas;
       DELETE FROM historias;
@@ -698,7 +726,16 @@ function importBackup(db, backup, actorId) {
       db.exec('DELETE FROM catalogo;');
       const insert = db.prepare('INSERT INTO catalogo (id, tipo, nombre, precio_centavos, activo) VALUES (?, ?, ?, ?, ?)');
       for (const item of backup.catalogo) insert.run(item.id, item.tipo, item.nombre, item.precioCentavos, Number(item.activo));
+      const savePrice = db.prepare('INSERT INTO catalog_prices (catalog_id, insurance_id, price_centavos, created_at, updated_at) VALUES (?, ?, ?, ?, ?)');
+      if (backup.tariffs.length) {
+        for (const item of backup.tariffs) savePrice.run(item.catalogId, item.insuranceId, item.priceCentavos, nowIso(), nowIso());
+      } else {
+        const privateInsurer = db.prepare("SELECT id FROM insurers WHERE codigo = 'PRIVADO'").get();
+        if (privateInsurer) for (const item of backup.catalogo.filter(entry => entry.tipo === 'procedimiento')) savePrice.run(item.id, privateInsurer.id, item.precioCentavos, nowIso(), nowIso());
+      }
     }
+    const insertEstimate = db.prepare('INSERT INTO estimates (id, patient_id, diagnosis, lines_json, total_centavos, status, valid_until, created_by_name, created_at, updated_at, converted_consultation_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    for (const item of backup.estimates || []) insertEstimate.run(item.id, item.patientId, item.diagnosis, JSON.stringify(item.lines), item.totalCentavos, item.status, item.validUntil, item.createdByName, item.createdAt, item.updatedAt, item.convertedConsultationId);
     const insertPayment = db.prepare('INSERT INTO cash_payments (id, consultation_id, patient_id, amount_centavos, coverage_percent, insurance_covered_centavos, patient_paid_centavos, amount_received_centavos, change_centavos, payment_method, reference, received_by_name, paid_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     const restoreLine = db.prepare('INSERT INTO cash_payment_lines (cash_payment_id, method, amount_centavos, reference_number) VALUES (?, ?, ?, ?)');
     for (const item of backup.cashPayments || []) { insertPayment.run(item.id, item.consultationId, item.patientId, item.amountCentavos, item.coveragePercent, item.insuranceCoveredCentavos, item.patientPaidCentavos, item.amountReceivedCentavos, item.changeCentavos, item.paymentMethod, item.reference || null, item.receivedByName, item.paidAt); restoreLine.run(item.id, ['efectivo','tarjeta','transferencia','otro'].includes(item.paymentMethod) ? item.paymentMethod : 'otro', item.patientPaidCentavos, item.reference || ''); }
@@ -1536,7 +1573,7 @@ async function handleApi(req, res, pathname, context) {
     return sendJson(res, 200, db.prepare('SELECT * FROM estimates WHERE patient_id=? ORDER BY id DESC').all(patientId).map(item => ({ id:Number(item.id), patientId:Number(item.patient_id), diagnosis:item.diagnosis, lines:parseData(item.lines_json), total:Number(item.total_centavos)/100, status:item.status, validUntil:item.valid_until, createdByName:item.created_by_name, createdAt:item.created_at, updatedAt:item.updated_at })));
   }
   if (patientEstimatesMatch && method === 'POST') {
-    requirePermission(auth, 'invoice.write'); const patientId = positiveId(patientEstimatesMatch[1], 'ID de paciente'); ensurePatient(db, patientId); const body = requireObject(await readJsonBody(req, bodyLimit)); const invoice = invoiceFromInput(db, auth, body, null, patientId); const status = String(body.status || 'borrador'); if (!['borrador','aprobado'].includes(status)) throw new HttpError(400, 'Estado de presupuesto no válido.'); const validUntil=String(body.validUntil || ''); if(validUntil&&!/^\d{4}-\d{2}-\d{2}$/.test(validUntil)) throw new HttpError(400,'La vigencia no es válida.'); const timestamp=nowIso(); const id=Number(db.prepare('INSERT INTO estimates(patient_id,diagnosis,lines_json,total_centavos,status,valid_until,created_by,created_by_name,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(patientId,invoice.diagnostico,JSON.stringify(invoice.procedimientos),Math.round(invoice.total*100),status,validUntil,auth.user.id,auth.user.displayName,timestamp,timestamp).lastInsertRowid); writeAudit(db,auth.user.id,'estimate_create','estimate',id,{patientId,total:invoice.total}); return sendJson(res,201,{id,patientId,diagnosis:invoice.diagnostico,lines:invoice.procedimientos,total:invoice.total,status,validUntil,createdByName:auth.user.displayName,createdAt:timestamp,updatedAt:timestamp});
+    requirePermission(auth, 'invoice.write'); const patientId = positiveId(patientEstimatesMatch[1], 'ID de paciente'); ensurePatient(db, patientId); const body = requireObject(await readJsonBody(req, bodyLimit)); const invoice = invoiceFromInput(db, auth, { diagnostico: body.diagnostico, procedimientos: body.procedimientos, tariffInsuranceId: body.tariffInsuranceId }, null, patientId); const status = String(body.status || 'borrador'); if (!['borrador','aprobado'].includes(status)) throw new HttpError(400, 'Estado de presupuesto no válido.'); const validUntil=String(body.validUntil || ''); if(validUntil&&!/^\d{4}-\d{2}-\d{2}$/.test(validUntil)) throw new HttpError(400,'La vigencia no es válida.'); const timestamp=nowIso(); const id=Number(db.prepare('INSERT INTO estimates(patient_id,diagnosis,lines_json,total_centavos,status,valid_until,created_by,created_by_name,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)').run(patientId,invoice.diagnostico,JSON.stringify(invoice.procedimientos),Math.round(invoice.total*100),status,validUntil,auth.user.id,auth.user.displayName,timestamp,timestamp).lastInsertRowid); writeAudit(db,auth.user.id,'estimate_create','estimate',id,{patientId,total:invoice.total}); return sendJson(res,201,{id,patientId,diagnosis:invoice.diagnostico,lines:invoice.procedimientos,total:invoice.total,status,validUntil,createdByName:auth.user.displayName,createdAt:timestamp,updatedAt:timestamp});
   }
   const estimateConvertMatch = pathname.match(/^\/api\/presupuestos\/(\d+)\/convertir$/);
   const estimateMatch = pathname.match(/^\/api\/presupuestos\/(\d+)$/);

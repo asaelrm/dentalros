@@ -188,6 +188,19 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del catÃ
   assert.equal((await f.request('/api/backup/import', 'POST', invalid, f.admin)).status, 400);
   assert.equal((await f.request('/api/catalogo', 'GET', undefined, sessions.doctor)).data.length, 1);
   assert.equal((await f.request('/api/cash', 'GET', undefined, sessions.auxiliar)).status, 200);
+  const estimateDraft = await f.request(`/api/pacientes/${patientId}/presupuestos`, 'POST', { diagnostico: 'Presupuesto inicial', procedimientos: [{ procedimientoId: procedure.data.id, cantidad: 1 }], validUntil: '2026-12-31' }, sessions.secretaria);
+  assert.equal(estimateDraft.status, 201);
+  assert.equal((await f.request(`/api/pacientes/${patientId}/presupuestos`, 'GET', undefined, sessions.secretaria)).data[0].status, 'borrador');
+  assert.equal((await f.request(`/api/presupuestos/${estimateDraft.data.id}`, 'DELETE', undefined, sessions.secretaria)).status, 200);
+  const estimateToConvert = await f.request(`/api/pacientes/${patientId}/presupuestos`, 'POST', { diagnostico: 'Presupuesto aprobado', procedimientos: [{ procedimientoId: procedure.data.id, cantidad: 1 }], status: 'aprobado' }, sessions.secretaria);
+  const convertedEstimate = await f.request(`/api/presupuestos/${estimateToConvert.data.id}/convertir`, 'POST', {}, sessions.secretaria);
+  assert.equal(convertedEstimate.status, 201);
+  assert.equal(convertedEstimate.data.factura.estado, 'abierta');
+  assert.equal((await f.request(`/api/presupuestos/${estimateToConvert.data.id}`, 'DELETE', undefined, sessions.secretaria)).status, 409);
+  const config = await f.request('/api/config', 'GET', undefined, f.admin);
+  const configured = await f.request('/api/config', 'PUT', { ...config.data, invoicePrefix: 'FACT', receiptPrefix: 'COMP', creditNotePrefix: 'NC' }, f.admin);
+  assert.equal(configured.status, 200);
+  assert.equal((await f.request('/api/config', 'PUT', { invoicePrefix: 'invÃ¡lido!' }, f.admin)).status, 400);
   await f.request(`/api/pacientes/${patientId}/historia`, 'PUT', { motivoPrincipal: 'Historia generada' }, sessions.doctor);
   const opened = await f.request('/api/cash/session', 'POST', { openingCash: 100, registerNumber: 'Caja principal' }, sessions.secretaria);
   assert.equal(opened.status, 201);
@@ -199,6 +212,7 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del catÃ
   assert.equal(charge.data.remaining, 25);
   assert.equal(charge.data.amountReceived, 20);
   assert.equal(charge.data.change, 0);
+  assert.match(charge.data.voucherNumber, /^COMP-\d{8}$/);
   assert.equal(charge.data.payments.length, 2);
   assert.equal(charge.data.payments[1].lastFour, '1234');
   const finalCharge = await f.request(`/api/consultas/${visit.data.id}/charge`, 'POST', { payments: [{ method: 'efectivo', amount: 25 }], paymentAmount: 25, amountReceived: 25 }, sessions.secretaria);
@@ -212,6 +226,7 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del catÃ
   assert.equal(cash.data.insuranceTotal, 15);
   assert.equal(cash.data.currentSession, null);
   assert.equal(cash.data.payments[0].services.length, 1);
+  assert.match(cash.data.payments[0].invoiceNumber, /^FACT-\d{8}$/);
   assert.equal((await f.request(`/api/cash/payments/${charge.data.id}/reprint`, 'POST', {}, sessions.secretaria)).status, 200);
   const closed = await f.request('/api/cash/session/close', 'POST', { countedCash: 135 }, sessions.secretaria);
   assert.equal(closed.status, 200);
@@ -235,7 +250,7 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del catÃ
   assert.equal((await f.request(`/api/cash/payments/${finalCharge.data.id}/void`, 'POST', {}, f.admin)).status, 200);
   const voidInvoice = await f.request(`${invoicePath}/anular`, 'POST', { reason: 'CorrecciÃ³n administrativa de prueba' }, f.admin);
   assert.equal(voidInvoice.status, 200);
-  assert.match(voidInvoice.data.factura.notaCredito, /^NCE-\d{4}-000001$/);
+  assert.match(voidInvoice.data.factura.notaCredito, /^NC-\d{4}-000001$/);
   assert.equal(voidInvoice.data.factura.estado, 'anulada');
   const afterVoid = await f.request(`/api/cash?from=${today}&to=${today}`, 'GET', undefined, f.admin);
   assert.equal(afterVoid.data.total, 0);
@@ -244,9 +259,12 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del catÃ
   assert.equal(cash.data.pendingInvoices.length, 0);
   const financialBackup = (await f.request('/api/backup', 'GET', undefined, f.admin)).data;
   assert.equal(financialBackup.insurers.some(item => item.nombre === 'ARS Comunitaria'), true);
+  assert.equal(financialBackup.tariffs.some(item => item.catalogId === procedure.data.id && item.insuranceId === customInsurer.data.id && item.priceCentavos === 975), true);
+  assert.equal(financialBackup.estimates.some(item => item.id === estimateToConvert.data.id && item.status === 'convertido'), true);
   assert.equal(financialBackup.cashPayments[0].amountCentavos, 6000);
   assert.equal((await f.request('/api/backup/import', 'POST', financialBackup, f.admin)).status, 200);
   assert.equal((await f.request(`/api/cash?from=${today}&to=${today}`, 'GET', undefined, f.admin)).data.total, 45);
+  assert.equal((await f.request(`/api/pacientes/${patientId}/presupuestos`, 'GET', undefined, sessions.secretaria)).data.some(item => item.id === estimateToConvert.data.id && item.status === 'convertido'), true);
 });
 
 test('ConfiguraciÃ³n SMTP exige origen vÃ¡lido y TLS', () => {
