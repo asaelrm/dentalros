@@ -193,6 +193,16 @@ function openDatabase(filename) {
         created_by_name TEXT NOT NULL, created_at TEXT NOT NULL
       ) STRICT;
       CREATE INDEX IF NOT EXISTS idx_informed_consents_patient ON informed_consents(patient_id, created_at DESC);
+      CREATE TABLE IF NOT EXISTS inventory_items (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL COLLATE NOCASE UNIQUE, sku TEXT NOT NULL DEFAULT '' COLLATE NOCASE UNIQUE,
+        unit TEXT NOT NULL DEFAULT 'unidad', stock REAL NOT NULL DEFAULT 0 CHECK(stock >= 0), minimum_stock REAL NOT NULL DEFAULT 0 CHECK(minimum_stock >= 0),
+        supplier TEXT NOT NULL DEFAULT '', expiry_date TEXT NOT NULL DEFAULT '', active INTEGER NOT NULL DEFAULT 1 CHECK(active IN(0,1)), created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+      ) STRICT;
+      CREATE TABLE IF NOT EXISTS inventory_movements (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, item_id INTEGER NOT NULL REFERENCES inventory_items(id) ON DELETE RESTRICT, movement_type TEXT NOT NULL CHECK(movement_type IN('entrada','salida','ajuste')),
+        quantity REAL NOT NULL, notes TEXT NOT NULL DEFAULT '', created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, created_by_name TEXT NOT NULL, created_at TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS idx_inventory_movements_item ON inventory_movements(item_id, created_at DESC);
       CREATE TABLE IF NOT EXISTS appointments (
         id INTEGER PRIMARY KEY AUTOINCREMENT, patient_id INTEGER NOT NULL REFERENCES pacientes(id) ON DELETE CASCADE,
         professional_name TEXT NOT NULL, starts_at TEXT NOT NULL, ends_at TEXT NOT NULL,
