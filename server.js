@@ -770,7 +770,7 @@ function isKnownProtectedPath(pathname) {
     pathname === '/api/catalogo' || /^\/api\/catalogo\/\d+$/.test(pathname) || pathname === '/api/tarifarios' ||
     /^\/api\/users\/\d+(?:\/reset-password)?$/.test(pathname) ||
     pathname === '/api/pacientes' ||
-    /^\/api\/pacientes\/\d+(?:\/(?:historia|consultas|odontograma|adjuntos|firmas|presupuestos))?$/.test(pathname) ||
+    /^\/api\/pacientes\/\d+(?:\/(?:historia|consultas|odontograma|odontograma\/historial|adjuntos|firmas|presupuestos))?$/.test(pathname) ||
     /^\/api\/(?:adjuntos|firmas)\/\d+$/.test(pathname) ||
     /^\/api\/consultas\/\d+$/.test(pathname) ||
     /^\/api\/consultas\/\d+\/factura(?:\/(?:cerrar|reabrir|anular))?$/.test(pathname) ||
@@ -1747,6 +1747,12 @@ async function handleApi(req, res, pathname, context) {
   }
 
   const odontogramMatch = pathname.match(/^\/api\/pacientes\/(\d+)\/odontograma$/);
+  const odontogramHistoryMatch = pathname.match(/^\/api\/pacientes\/(\d+)\/odontograma\/historial$/);
+  if (odontogramHistoryMatch && method === 'GET') {
+    const patientId = positiveId(odontogramHistoryMatch[1], 'ID de paciente'); ensurePatient(db, patientId);
+    const rows = db.prepare('SELECT id,data,created_by_name,created_at FROM odontogram_history WHERE patient_id=? ORDER BY id DESC LIMIT 100').all(patientId);
+    return sendJson(res, 200, rows.map(row => ({ id: Number(row.id), patientId, ...parseData(row.data), createdByName: row.created_by_name, createdAt: row.created_at })));
+  }
   if (odontogramMatch && method === 'GET') {
     const patientId = positiveId(odontogramMatch[1], 'ID de paciente');
     ensurePatient(db, patientId);
@@ -1759,9 +1765,9 @@ async function handleApi(req, res, pathname, context) {
     const patientId = positiveId(odontogramMatch[1], 'ID de paciente');
     ensurePatient(db, patientId);
     const incoming = validateOdontogramInput(requireObject(await readJsonBody(req, bodyLimit)));
-    const current = db.prepare('SELECT data FROM odontogramas WHERE paciente_id = ?').get(patientId);
+    const current = db.prepare('SELECT data FROM odontogramas WHERE paciente_id = ?').get(patientId); const before = current ? parseData(current.data) : { piezas: {}, notasGenerales: '' };
     const data = {
-      ...(current ? parseData(current.data) : { piezas: {}, notasGenerales: '' }),
+      ...before,
       ...incoming,
       fechaActualizacion: nowIso()
     };
@@ -1770,7 +1776,8 @@ async function handleApi(req, res, pathname, context) {
         INSERT INTO odontogramas (paciente_id, data) VALUES (?, ?)
         ON CONFLICT(paciente_id) DO UPDATE SET data = excluded.data
       `).run(patientId, JSON.stringify(data));
-      writeAudit(db, auth.user.id, 'odontogram_update', 'odontograma', patientId);
+      if (JSON.stringify(before.piezas || {}) !== JSON.stringify(data.piezas || {}) || before.notasGenerales !== data.notasGenerales) db.prepare('INSERT INTO odontogram_history(patient_id,data,created_by,created_by_name,created_at) VALUES(?,?,?,?,?)').run(patientId, JSON.stringify({ piezas: data.piezas || {}, notasGenerales: data.notasGenerales || '' }), auth.user.id, auth.user.displayName, data.fechaActualizacion);
+      writeAudit(db, auth.user.id, 'odontogram_update', 'odontograma', patientId, { changes: auditChanges(before, data, ['fechaActualizacion']) });
     });
     return sendJson(res, 200, { ...data, pacienteId: patientId });
   }

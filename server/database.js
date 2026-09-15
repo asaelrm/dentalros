@@ -201,6 +201,11 @@ function openDatabase(filename) {
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL, converted_consultation_id INTEGER UNIQUE REFERENCES consultas(id) ON DELETE RESTRICT
       ) STRICT;
       CREATE INDEX IF NOT EXISTS idx_estimates_patient ON estimates(patient_id, created_at);
+      CREATE TABLE IF NOT EXISTS odontogram_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, patient_id INTEGER NOT NULL REFERENCES pacientes(id) ON DELETE CASCADE,
+        data TEXT NOT NULL, created_by INTEGER REFERENCES users(id) ON DELETE SET NULL, created_by_name TEXT NOT NULL, created_at TEXT NOT NULL
+      ) STRICT;
+      CREATE INDEX IF NOT EXISTS idx_odontogram_history_patient ON odontogram_history(patient_id, created_at DESC);
       CREATE TABLE IF NOT EXISTS catalog_prices (
         catalog_id INTEGER NOT NULL REFERENCES catalogo(id) ON DELETE CASCADE,
         insurance_id INTEGER NOT NULL REFERENCES insurers(id) ON DELETE CASCADE,
