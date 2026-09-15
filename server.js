@@ -764,7 +764,7 @@ function isKnownProtectedPath(pathname) {
     pathname === '/api/auth/logout' ||
     pathname === '/api/auth/change-password' ||
     pathname === '/api/users' ||
-    pathname === '/api/insurers' || pathname === '/api/backups' || pathname === '/api/dashboard' || pathname === '/api/audit' || pathname === '/api/appointments' || /^\/api\/appointments\/\d+$/.test(pathname) ||
+    pathname === '/api/insurers' || pathname === '/api/backups' || pathname === '/api/dashboard' || pathname === '/api/reports/financial' || pathname === '/api/audit' || pathname === '/api/appointments' || /^\/api\/appointments\/\d+$/.test(pathname) ||
     pathname === '/api/cash' || /^\/api\/cash\/(?:session|session\/close|sessions\/\d+\/approve|payments\/\d+\/(?:void|reprint))$/.test(pathname) ||
     /^\/api\/consultas\/\d+\/charge$/.test(pathname) ||
     pathname === '/api/catalogo' || /^\/api\/catalogo\/\d+$/.test(pathname) || pathname === '/api/tarifarios' ||
@@ -1142,6 +1142,24 @@ async function handleApi(req, res, pathname, context) {
     const byCashier={}; for(const payment of payments) byCashier[payment.received_by_name]=(byCashier[payment.received_by_name]||0)+Number(payment.patient_paid_centavos)/100;
     const pendingApprovals=db.prepare("SELECT COUNT(*) count FROM cash_sessions WHERE approval_status='pendiente'").get().count;
     return sendJson(res,200,{todayTotal:periodTotal(today),monthTotal:periodTotal(month),outstanding,insurancePending:consultations.reduce((sum,item)=>sum+Math.max(0,Number(item.data.factura?.insuranceCovered||0)-payments.filter(p=>Number(p.consultation_id)===item.id).reduce((n,p)=>n+Number(p.insurance_covered_centavos)/100,0)),0),voidedCount:db.prepare("SELECT COUNT(*) count FROM cash_payments WHERE status='anulado'").get().count,pendingApprovals:Number(pendingApprovals),topProcedures:Object.entries(procedures).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([name,count])=>({name,count})),cashierProduction:Object.entries(byCashier).sort((a,b)=>b[1]-a[1]).map(([name,total])=>({name,total}))});
+  }
+  if (pathname === '/api/reports/financial' && method === 'GET') {
+    requireAdmin(auth);
+    const query = new URL(req.url, 'http://localhost').searchParams;
+    const today = nowIso().slice(0, 10); const from = String(query.get('from') || `${today.slice(0, 7)}-01`); const to = String(query.get('to') || today);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw new HttpError(400, 'El período del reporte no es válido.');
+    const consultations = db.prepare('SELECT id, paciente_id, data FROM consultas').all().map(row => ({ id: Number(row.id), patientId: Number(row.paciente_id), data: parseData(row.data) }));
+    const invoices = consultations.filter(item => { const date = String(item.data.factura?.cerradaEn || '').slice(0, 10); return item.data.factura?.estado !== 'anulada' && date >= from && date <= to; });
+    const payments = db.prepare("SELECT * FROM cash_payments WHERE status='pagado' AND substr(paid_at,1,10) BETWEEN ? AND ?").all(from, to);
+    const paymentLines = db.prepare("SELECT pl.method,pl.amount_centavos FROM cash_payment_lines pl JOIN cash_payments cp ON cp.id=pl.cash_payment_id WHERE cp.status='pagado' AND substr(cp.paid_at,1,10) BETWEEN ? AND ?").all(from, to);
+    const money = cents => Number((Number(cents || 0) / 100).toFixed(2)); const billedCents = invoices.reduce((sum, item) => sum + Math.round(Number(item.data.factura.total || 0) * 100), 0);
+    const patientCollectedCents = payments.reduce((sum, item) => sum + Number(item.patient_paid_centavos || 0), 0); const insuranceCollectedCents = payments.reduce((sum, item) => sum + Number(item.insurance_covered_centavos || 0), 0);
+    const procedures = {}; for (const item of invoices) for (const line of item.data.factura?.procedimientos || []) procedures[line.nombre] = (procedures[line.nombre] || 0) + Number(line.cantidad || 0);
+    const methodTotals = {}; for (const line of paymentLines) methodTotals[line.method] = money((methodTotals[line.method] || 0) * 100 + Number(line.amount_centavos));
+    const doctorRows = db.prepare("SELECT a.entity_id,u.display_name FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id WHERE a.action='invoice_create' AND a.entity='consulta'").all(); const doctorByConsultation = new Map(doctorRows.map(row => [Number(row.entity_id), row.display_name || 'No registrado'])); const doctorTotals = {};
+    for (const item of invoices) { const name = doctorByConsultation.get(item.id) || 'No registrado'; doctorTotals[name] = money((doctorTotals[name] || 0) * 100 + Math.round(Number(item.data.factura.total || 0) * 100)); }
+    const allClosed = consultations.filter(item => item.data.factura?.estado === 'cerrada'); const outstandingCents = allClosed.reduce((sum, item) => { const invoiceCents = Math.round(Number(item.data.factura.total || 0) * 100); const paid = db.prepare("SELECT COALESCE(SUM(patient_paid_centavos + insurance_covered_centavos),0) total FROM cash_payments WHERE consultation_id=? AND status='pagado'").get(item.id).total; return sum + Math.max(0, invoiceCents - Number(paid)); }, 0);
+    return sendJson(res, 200, { from, to, billed: money(billedCents), patientCollected: money(patientCollectedCents), insuranceCollected: money(insuranceCollectedCents), collected: money(patientCollectedCents + insuranceCollectedCents), outstanding: money(outstandingCents), attendedPatients: new Set(invoices.map(item => item.patientId)).size, invoiceCount: invoices.length, byMethod: Object.entries(methodTotals).sort((a,b) => b[1] - a[1]).map(([method,total]) => ({ method, total })), topProcedures: Object.entries(procedures).sort((a,b) => b[1] - a[1]).slice(0,10).map(([name,count]) => ({ name, count })), doctorProduction: Object.entries(doctorTotals).sort((a,b) => b[1] - a[1]).map(([name,total]) => ({ name, total })) });
   }
   if (pathname === '/api/audit' && method === 'GET') {
     requireAdmin(auth); const rows=db.prepare(`SELECT a.id,a.action,a.entity,a.entity_id,a.details,a.created_at,u.display_name user_name FROM audit_logs a LEFT JOIN users u ON u.id=a.user_id ORDER BY a.id DESC LIMIT 100`).all();
