@@ -506,6 +506,17 @@ function validateConfigInput(body) {
   return data;
 }
 
+function auditChanges(before = {}, after = {}, ignored = []) {
+  const changes = {};
+  const skip = new Set(ignored);
+  for (const key of new Set([...Object.keys(before || {}), ...Object.keys(after || {})])) {
+    if (skip.has(key)) continue;
+    const previous = before?.[key]; const next = after?.[key];
+    if (JSON.stringify(previous) !== JSON.stringify(next)) changes[key] = { before: previous ?? null, after: next ?? null };
+  }
+  return changes;
+}
+
 function getConfig(db) {
   const row = db.prepare('SELECT data FROM configuracion WHERE id = ?').get(DEFAULT_CONFIG.id);
   const stored = row ? parseData(row.data) : {};
@@ -830,10 +841,12 @@ async function handleCatalog(req, res, pathname, context, auth) {
   const item = billing.catalogItem(requireObject(await readJsonBody(req, bodyLimit)));
   if (item.tipo === 'procedimiento') requirePermission(auth, 'invoice.price');
   let id = match[1] ? positiveId(match[1], 'ID de catálogo') : null;
+  let previousItem = null;
   if (id) {
     const previous = db.prepare('SELECT tipo FROM catalogo WHERE id = ?').get(id);
     if (!previous) throw new HttpError(404, 'Elemento no encontrado.');
     if (previous.tipo !== item.tipo) throw new HttpError(400, 'No se puede cambiar el tipo de un elemento existente.');
+    previousItem = getCatalog(db).find(entry => entry.id === id) || null;
   }
   runTransaction(db, () => {
     if (id) {
@@ -851,7 +864,7 @@ async function handleCatalog(req, res, pathname, context, auth) {
       db.prepare(`INSERT INTO catalog_prices (catalog_id, insurance_id, price_centavos, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(catalog_id, insurance_id) DO UPDATE SET price_centavos=excluded.price_centavos, updated_at=excluded.updated_at`).run(id, privateInsurer.id, item.precioCentavos, nowIso(), nowIso());
     }
-    writeAudit(db, auth.user.id, 'catalog_save', 'catalogo', id);
+    writeAudit(db, auth.user.id, previousItem ? 'catalog_update' : 'catalog_create', 'catalogo', id, { changes: auditChanges(previousItem || {}, { ...item, id }), before: previousItem, after: { ...item, id } });
   });
   sendJson(res, req.method === 'POST' ? 201 : 200, { ...item, id });
   return true;
@@ -1027,6 +1040,7 @@ async function handleApi(req, res, pathname, context) {
     const body = requireObject(await readJsonBody(req, bodyLimit));
     const insuranceId = positiveId(body.insuranceId, 'Tarifario');
     if (!db.prepare('SELECT 1 FROM insurers WHERE id = ?').get(insuranceId) || !Array.isArray(body.prices) || body.prices.length > 10000) throw new HttpError(400, 'Tarifario inválido.');
+    const changes = [];
     runTransaction(db, () => {
       const save = db.prepare(`INSERT INTO catalog_prices (catalog_id, insurance_id, price_centavos, created_at, updated_at) VALUES (?, ?, ?, ?, ?)
         ON CONFLICT(catalog_id, insurance_id) DO UPDATE SET price_centavos=excluded.price_centavos, updated_at=excluded.updated_at`);
@@ -1034,10 +1048,14 @@ async function handleApi(req, res, pathname, context) {
       for (const entry of body.prices) {
         const catalogId = positiveId(entry.catalogId, 'Servicio');
         if (!db.prepare("SELECT 1 FROM catalogo WHERE id = ? AND tipo = 'procedimiento'").get(catalogId)) throw new HttpError(400, 'El tarifario contiene un servicio inválido.');
+        const existing = db.prepare('SELECT price_centavos FROM catalog_prices WHERE catalog_id=? AND insurance_id=?').get(catalogId, insuranceId);
+        const previousPrice = existing ? Number(existing.price_centavos) / 100 : null;
         if (entry.price === '' || entry.price == null) remove.run(catalogId, insuranceId);
         else save.run(catalogId, insuranceId, billing.cents(Number(entry.price)), nowIso(), nowIso());
+        const nextPrice = entry.price === '' || entry.price == null ? null : Number(entry.price);
+        if (previousPrice !== nextPrice) changes.push({ catalogId, before: previousPrice, after: nextPrice });
       }
-      writeAudit(db, auth.user.id, 'tariff_update', 'insurance', insuranceId, { prices: body.prices.length });
+      writeAudit(db, auth.user.id, 'tariff_update', 'insurance', insuranceId, { changes, updatedCount: changes.length });
     });
     return sendJson(res, 200, { success: true });
   }
@@ -1498,13 +1516,13 @@ async function handleApi(req, res, pathname, context) {
     ensurePatient(db, patientId);
     const incoming = validateHistoryInput(requireObject(await readJsonBody(req, bodyLimit)));
     const current = db.prepare('SELECT data FROM historias WHERE paciente_id = ?').get(patientId);
-    const data = { ...(current ? parseData(current.data) : {}), ...incoming, fechaActualizacion: nowIso() };
+    const before = current ? parseData(current.data) : {}; const data = { ...before, ...incoming, fechaActualizacion: nowIso() };
     runTransaction(db, () => {
       db.prepare(`
         INSERT INTO historias (paciente_id, data) VALUES (?, ?)
         ON CONFLICT(paciente_id) DO UPDATE SET data = excluded.data
       `).run(patientId, JSON.stringify(data));
-      writeAudit(db, auth.user.id, 'history_update', 'historia', patientId);
+      writeAudit(db, auth.user.id, 'history_update', 'historia', patientId, { operation: current ? 'update' : 'create', patientId, changes: auditChanges(before, data, ['fechaActualizacion']) });
     });
     return sendJson(res, 200, { ...data, pacienteId: patientId });
   }
@@ -1614,11 +1632,11 @@ async function handleApi(req, res, pathname, context) {
     const row = db.prepare('SELECT id, paciente_id, data FROM consultas WHERE id = ?').get(consultationId);
     if (!row) throw new HttpError(404, 'Consulta no encontrada.');
     const incoming = validateConsultationInput(requireObject(await readJsonBody(req, bodyLimit)));
-    const data = { ...parseData(row.data), ...pricedConsultation(db, auth, incoming, parseData(row.data)) };
+    const before = parseData(row.data); const data = { ...before, ...pricedConsultation(db, auth, incoming, before) };
     data.fecha = data.fecha || nowIso().slice(0, 10);
     runTransaction(db, () => {
       db.prepare('UPDATE consultas SET data = ? WHERE id = ?').run(JSON.stringify(data), consultationId);
-      writeAudit(db, auth.user.id, 'consultation_update', 'consulta', consultationId);
+      writeAudit(db, auth.user.id, 'consultation_update', 'consulta', consultationId, { patientId: Number(row.paciente_id), changes: auditChanges(before, data, ['fechaActualizacion']) });
     });
     return sendJson(res, 200, consultationForUser({
       ...data,
@@ -1638,11 +1656,11 @@ async function handleApi(req, res, pathname, context) {
     if (!action && method === 'PUT') {
       requirePermission(auth, 'invoice.write');
       if (consultation.factura && consultation.factura.estado !== 'abierta') throw new HttpError(409, 'La factura está cerrada o anulada y no puede modificarse.');
-      const factura = invoiceFromInput(db, auth, await readJsonBody(req, bodyLimit), consultation.factura, Number(row.paciente_id));
+      const existed = Boolean(consultation.factura); const before = consultation.factura ? structuredClone(consultation.factura) : {}; const factura = invoiceFromInput(db, auth, await readJsonBody(req, bodyLimit), consultation.factura, Number(row.paciente_id));
       consultation.factura = factura;
       runTransaction(db, () => {
         db.prepare('UPDATE consultas SET data = ? WHERE id = ?').run(JSON.stringify(consultation), consultationId);
-        writeAudit(db, auth.user.id, 'invoice_update', 'consulta', consultationId, { total: factura.total });
+        writeAudit(db, auth.user.id, existed ? 'invoice_update' : 'invoice_create', 'consulta', consultationId, { patientId: Number(row.paciente_id), changes: auditChanges(before, factura, ['actualizadaEn', 'creadaEn']), before, after: factura });
       });
       return sendJson(res, 200, { ...consultation, id: consultationId, pacienteId: Number(row.paciente_id) });
     }

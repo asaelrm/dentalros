@@ -202,6 +202,10 @@ test('Roles, precios no manipulables, cantidades, historial y respaldos del cat�
   assert.equal(configured.status, 200);
   assert.equal((await f.request('/api/config', 'PUT', { invoicePrefix: 'inválido!' }, f.admin)).status, 400);
   await f.request(`/api/pacientes/${patientId}/historia`, 'PUT', { motivoPrincipal: 'Historia generada' }, sessions.doctor);
+  const detailedAudit = (await f.request('/api/audit', 'GET', undefined, f.admin)).data;
+  assert.equal(detailedAudit.some(item => item.action === 'history_update' && item.details.changes?.motivoPrincipal?.after === 'Historia generada'), true);
+  assert.equal(detailedAudit.some(item => item.action === 'invoice_update' && item.details.changes?.total), true);
+  assert.equal(detailedAudit.some(item => item.action === 'tariff_update' && Array.isArray(item.details.changes) && item.details.changes.length > 0), true);
   const opened = await f.request('/api/cash/session', 'POST', { openingCash: 100, registerNumber: 'Caja principal' }, sessions.secretaria);
   assert.equal(opened.status, 201);
   const charge = await f.request(`/api/consultas/${visit.data.id}/charge`, 'POST', { payments: [{ method: 'efectivo', amount: 10 }, { method: 'tarjeta', amount: 10, cardBrand: 'Visa', cardType: 'Crédito', lastFour: '1234', authorizationNumber: '458721' }], reference: 'APROB-1', coveragePercent: 25, paymentAmount: 20, amountReceived: 20 }, sessions.secretaria);
