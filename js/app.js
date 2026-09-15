@@ -257,12 +257,14 @@ class OdontoApp {
       piezas: {},
       notasGenerales: ''
     };
+    this.currentOdontogramHistory = await window.odontoDB.getOdontogramaHistorial(id);
 
     // Actualizar elementos visuales
     this.renderPacienteHeader();
     this.renderHistoriaClinicaForm();
     this.renderClinicalAttachments();
     this.renderClinicalSignatures();
+    this.renderOdontogramHistory();
     this.renderConsultasTimeline();
     this.renderFacturas();
     
@@ -298,6 +300,8 @@ class OdontoApp {
 
   }
 
+  renderOdontogramHistory(){const select=document.getElementById('odontogram-history-select');if(!select)return;select.innerHTML='<option value="">Estado actual</option>'+(this.currentOdontogramHistory||[]).map(item=>`<option value="${item.id}">${new Date(item.createdAt).toLocaleString('es-DO')} · ${window.escapeHTML(item.createdByName)}</option>`).join('');document.getElementById('btn-compare-odontogram')?.addEventListener('click',()=>this.compareOdontogramVersion());}
+  compareOdontogramVersion(){const id=Number(document.getElementById('odontogram-history-select').value||0);const output=document.getElementById('odontogram-comparison');if(!id)return output.textContent='Selecciona una versión para comparar.';const version=(this.currentOdontogramHistory||[]).find(item=>item.id===id);const current=this.currentOdontograma?.piezas||{};const old=version?.piezas||{};const teeth=new Set([...Object.keys(current),...Object.keys(old)]);const changed=[...teeth].filter(tooth=>JSON.stringify(current[tooth]||{})!==JSON.stringify(old[tooth]||{}));output.textContent=changed.length?`Cambios en ${changed.length} pieza(s): ${changed.sort((a,b)=>Number(a)-Number(b)).join(', ')}.`:'Sin diferencias frente a esta versión.';}
   renderPacienteHeader() {
     const p = this.currentPaciente;
     if (!p) return;

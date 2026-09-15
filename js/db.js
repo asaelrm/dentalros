@@ -182,6 +182,7 @@ class OdontoDB {
   async getOdontograma(pacienteId) {
     return this.api.request(`/api/pacientes/${Number(pacienteId)}/odontograma`);
   }
+  async getOdontogramaHistorial(pacienteId) { return this.api.request(`/api/pacientes/${Number(pacienteId)}/odontograma/historial`); }
 
   async saveOdontograma(pacienteId, piezas, notasGenerales = '') {
     await this.api.request(`/api/pacientes/${Number(pacienteId)}/odontograma`, {
