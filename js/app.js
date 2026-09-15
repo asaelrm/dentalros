@@ -252,6 +252,7 @@ class OdontoApp {
     this.currentPresupuestos = await window.odontoDB.getPresupuestos(id);
     this.currentAttachments = await window.odontoDB.getAdjuntos(id);
     this.currentSignatures = await window.odontoDB.getFirmas(id);
+    this.currentConsents = await window.odontoDB.getConsentimientos(id);
     this.currentOdontograma = await window.odontoDB.getOdontograma(id) || {
       pacienteId: id,
       piezas: {},
@@ -264,6 +265,7 @@ class OdontoApp {
     this.renderHistoriaClinicaForm();
     this.renderClinicalAttachments();
     this.renderClinicalSignatures();
+    this.renderClinicalConsents();
     this.renderOdontogramHistory();
     this.renderConsultasTimeline();
     this.renderFacturas();
@@ -389,6 +391,7 @@ class OdontoApp {
     }));
   }
 
+  renderClinicalConsents(){const list=document.getElementById('clinical-consents-list');const patient=document.getElementById('consent-patient-signature');const professional=document.getElementById('consent-professional-signature');if(!list)return;const escape=window.escapeHTML;const options=(type)=>this.currentSignatures.filter(item=>type==='patient'?['paciente','responsable'].includes(item.signerType):item.signerType==='personal').map(item=>`<option value="${item.id}">${escape(item.signerName)}</option>`).join('');patient.innerHTML='<option value="">Firma del paciente (opcional)</option>'+options('patient');professional.innerHTML='<option value="">Firma profesional (opcional)</option>'+options('professional');list.innerHTML=(this.currentConsents||[]).map(item=>`<article class="p-3 border rounded-xl"><b>${escape(item.procedureName)}</b><small class="block">${new Date(item.createdAt).toLocaleString('es-DO')} · ${escape(item.createdByName)}</small><p class="text-xs mt-1 whitespace-pre-wrap">${escape(item.content)}</p></article>`).join('')||'<p class="text-xs text-slate-500">No hay consentimientos guardados.</p>';document.getElementById('btn-save-consent').onclick=async()=>{try{const procedureName=document.getElementById('consent-procedure').value.trim();const content=document.getElementById('consent-content').value.trim();await window.odontoDB.saveConsentimiento(this.currentPacienteId,{procedureName,content,patientSignatureId:patient.value||null,professionalSignatureId:professional.value||null});this.currentConsents=await window.odontoDB.getConsentimientos(this.currentPacienteId);this.renderClinicalConsents();document.getElementById('consent-procedure').value='';document.getElementById('consent-content').value='';this.showToast('Consentimiento guardado en la Historia Clínica.');}catch(error){this.showToast(error.message,'error');}};}
   renderClinicalSignatures() {
     const list = document.getElementById('clinical-signatures-list'); if (!list) return;
     const escape = window.escapeHTML;
