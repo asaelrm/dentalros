@@ -145,6 +145,8 @@ class OdontoDB {
   getAdjuntoUrl(id) { return `/api/adjuntos/${Number(id)}`; }
   async getFirmas(pacienteId) { return this.api.request(`/api/pacientes/${Number(pacienteId)}/firmas`); }
   async saveFirma(pacienteId, data) { return this.api.request(`/api/pacientes/${Number(pacienteId)}/firmas`, { method: 'POST', body: data }); }
+  async getConsentimientos(pacienteId) { return this.api.request(`/api/pacientes/${Number(pacienteId)}/consentimientos`); }
+  async saveConsentimiento(pacienteId, data) { return this.api.request(`/api/pacientes/${Number(pacienteId)}/consentimientos`, { method: 'POST', body: data }); }
 
   async getConsultas(pacienteId) {
     return this.api.request(`/api/pacientes/${Number(pacienteId)}/consultas`);
